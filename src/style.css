@@ -224,3 +224,5 @@ th[data-sort]:hover { color: var(--ink); }
 .gpus:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .pick { font: inherit; font-size: 13px; font-weight: 600; color: var(--ink); background: var(--raise); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; }
 .pick:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.about td { white-space: normal; }
+.about td.who { width: 160px; }
