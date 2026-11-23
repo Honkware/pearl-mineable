@@ -26,6 +26,7 @@ try {
   });
   const send = (method, params = {}) => new Promise((r) => { const n = ++id; waits.set(n, r); ws.send(JSON.stringify({ id: n, method, params })); });
   await send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 630, deviceScaleFactor: 2, mobile: false });
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
   await send('Page.navigate', { url });
   let loaded = false;
   for (let i = 0; i < 60 && !loaded; i++) {
@@ -35,6 +36,8 @@ try {
   }
   // Without chain data the card would show dashes, so the committed image stays.
   if (!loaded) throw new Error('chain data did not load; keeping the committed card');
+  // CI runners lack a font with the theme button's glyph.
+  await send('Runtime.evaluate', { expression: "document.getElementById('theme')?.remove()" });
   await sleep(1500);
   const shot = await send('Page.captureScreenshot', { format: 'png' });
   const name = `card-${Date.now().toString(36)}.png`;
