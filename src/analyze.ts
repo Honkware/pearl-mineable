@@ -1,7 +1,5 @@
-// What share of a model's prompt work mines on a given GPU and tensor-parallel
-// size. Work is counted in multiply-accumulates per prompt token over every
-// rank, since each rank mines its own shard and is credited m*n*k for it
-// (mining_config.py effective_work_per_matmul).
+// Work is counted over every rank: each rank mines its own shard and is
+// credited m*n*k for it (mining_config.py effective_work_per_matmul).
 import type { Format, Linear, Model } from './arch.js';
 import type { Gpu } from './gpus.js';
 import { denseTile, expertTile, type Tile } from './rules.js';
@@ -10,15 +8,15 @@ export interface Row {
   name: string;
   n: number;
   k: number;
-  /** The shard one GPU holds. */
   localN: number;
   localK: number;
   layers: number;
   tile: Tile | null;
-  /** Why it does not mine, when it doesn't. */
   why: string | null;
-  /** Multiply-accumulates per prompt token, all layers and ranks. */
+  // MACs per prompt token, all layers and ranks.
   work: number;
+  minedWork: number;
+  minedLayers: number;
 }
 
 export interface Result {
@@ -27,7 +25,6 @@ export interface Result {
   work: number;
   mined: number;
   share: number;
-  /** Weight bytes per GPU at this split. */
   bytesPerGpu: number;
   fits: boolean;
 }
@@ -36,7 +33,7 @@ const BYTES: Record<Format, number> = { bf16: 2, fp8: 1.03, nvfp4: 0.56, mxfp4: 
 // Room left for activations, the KV cache and the miner's own workspaces.
 const HEADROOM = 0.75;
 
-function shard(l: Linear, tp: number): { n: number; k: number } | null {
+export function shard(l: Linear, tp: number): { n: number; k: number } | null {
   if (l.split === 'replicated' || tp === 1) return { n: l.n, k: l.k };
   if (l.split === 'row') return l.k % tp === 0 ? { n: l.n, k: l.k / tp } : null;
   if (l.heads) {
@@ -63,18 +60,18 @@ export function analyze(m: Model, gpu: Gpu, tp: number): Result | null {
     const s = shard(l, tp);
     if (s === null) return null;
     const tile = l.never ? null : denseTile(s.n, s.k, gpu.arch);
-    rows.push({ name: l.name, n: l.n, k: l.k, localN: s.n, localK: s.k, layers: l.layers, tile, why: l.never ?? (tile ? null : 'shape'), work: s.n * s.k * tp * l.layers });
+    rows.push({ name: l.name, n: l.n, k: l.k, localN: s.n, localK: s.k, layers: l.layers, tile, why: l.never ?? (tile ? null : 'shape'), work: s.n * s.k * tp * l.layers, minedWork: tile ? s.n * s.k * tp * l.layers : 0, minedLayers: tile ? l.layers : 0 });
   }
   const e = m.experts;
   if (e && e.layers > 0) {
     if (e.intermediate % tp !== 0) return null;
     const nE = e.nE / tp;
     const tile = e.blocked ? null : expertTile(nE, e.hidden, e.count, gpu.arch);
-    rows.push({ name: 'experts.w13 (gate/up)', n: e.nE, k: e.hidden, localN: nE, localK: e.hidden, layers: e.layers, tile, why: e.blocked ?? (tile ? null : 'shape'), work: e.topK * e.nE * e.hidden * e.layers });
-    rows.push({ name: 'experts.w2 (down)', n: e.hidden, k: e.intermediate, localN: e.hidden, localK: e.intermediate / tp, layers: e.layers, tile: null, why: 'never mined', work: e.topK * e.hidden * e.intermediate * e.layers });
+    rows.push({ name: 'experts.w13 (gate/up)', n: e.nE, k: e.hidden, localN: nE, localK: e.hidden, layers: e.layers, tile, why: e.blocked ?? (tile ? null : 'shape'), work: e.topK * e.nE * e.hidden * e.layers, minedWork: tile ? e.topK * e.nE * e.hidden * e.layers : 0, minedLayers: tile ? e.layers : 0 });
+    rows.push({ name: 'experts.w2 (down)', n: e.hidden, k: e.intermediate, localN: e.hidden, localK: e.intermediate / tp, layers: e.layers, tile: null, why: 'never mined', work: e.topK * e.hidden * e.intermediate * e.layers, minedWork: 0, minedLayers: 0 });
   }
   const work = rows.reduce((s, r) => s + r.work, 0);
-  const mined = rows.reduce((s, r) => s + (r.tile ? r.work : 0), 0);
+  const mined = rows.reduce((s, r) => s + r.minedWork, 0);
   const bytesPerGpu = (params(m) * BYTES[m.format]) / tp;
   return { tp, rows, work, mined, share: work > 0 ? mined / work : 0, bytesPerGpu, fits: bytesPerGpu <= gpu.memory * 1e9 * HEADROOM };
 }

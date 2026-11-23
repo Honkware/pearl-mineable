@@ -1,0 +1,8 @@
+{
+  "source": "pearl-research-labs/pearl 29c2b03009143c98f4519271d716bd5535762a18",
+  "thresholds": {
+    "min_m": 1024,
+    "min_n": 256,
+    "min_k": 1024
+  }
+}
