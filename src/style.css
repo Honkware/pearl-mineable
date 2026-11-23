@@ -201,14 +201,6 @@ td .sub.warn { color: var(--warn); }
 /* Calculator additions */
 .mbar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--raise); width: 120px; flex: none; }
 .mbar i { display: block; background: var(--accent); }
-.mbar.wide { width: 100%; height: 22px; border-radius: 6px; }
-.mbar.wide i { display: flex; align-items: center; padding-left: 8px; font-style: normal; font-size: 12px; color: var(--bg); font-weight: 600; white-space: nowrap; overflow: hidden; }
-.mbar.wide i.off { background: color-mix(in oklch, var(--faint) 55%, var(--raise)); }
-.tag.mid { color: var(--warn); background: color-mix(in oklch, var(--warn) 14%, transparent); }
-.tag.plain { color: var(--soft); background: var(--raise); }
-.legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--soft); font-size: 12.5px; padding-top: 8px; }
-.legend b { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--accent); }
-.legend b.off { background: color-mix(in oklch, var(--faint) 55%, var(--raise)); }
 .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
 .seg button { font: inherit; border: 0; background: none; color: var(--soft); padding: 3px 11px; border-radius: 6px; font-size: 13px; cursor: pointer; }
 .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); font-weight: 600; box-shadow: 0 0 0 1px var(--line); }
