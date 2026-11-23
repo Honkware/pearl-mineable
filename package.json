@@ -1,8 +1,14 @@
 {
-  "name": "pearl-models",
+  "name": "pearl-mineable",
   "version": "0.1.0",
   "private": true,
-  "description": "Which layers of an AI model mine on Pearl under the FP8 rules, and what that earns",
+  "description": "How much of an AI model's prompt work mines Pearl today and after the FP8 fork",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Honkware/pearl-mineable.git"
+  },
+  "homepage": "https://honkware.github.io/pearl-mineable/",
   "type": "module",
   "scripts": {
     "dev": "vite",
