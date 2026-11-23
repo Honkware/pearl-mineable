@@ -1,0 +1,66 @@
+// Config reading and mined share for the models Pearl builds around and a few
+// popular ones. Expected shapes are each model's real layer sizes; the GLM-5.2
+// ones are the (n, k) pairs Pearl's own fp8-scheme tests use for that model.
+import { describe, expect, it } from 'vitest';
+import { analyze, autoTp } from '../src/analyze.js';
+import { readConfig, UnsupportedModel } from '../src/arch.js';
+import { gpu } from '../src/gpus.js';
+import { KNOWN } from '../src/known.js';
+
+const model = (id: string) => readConfig(KNOWN.find((m) => m.id === id)!.config);
+const shapes = (id: string) => Object.fromEntries(model(id).linears.map((l) => [l.name, [l.n, l.k]]));
+const row = (id: string, tp: number, name: string, card = 'h100') => analyze(model(id), gpu(card), tp)!.rows.find((r) => r.name === name)!;
+
+describe('reading configs', () => {
+  it('builds Llama 3.3 70B fused qkv and gate/up the way vLLM does', () => {
+    expect(shapes('meta-llama/Llama-3.3-70B-Instruct')).toMatchObject({ qkv_proj: [10240, 8192], o_proj: [8192, 8192], gate_up_proj: [57344, 8192], down_proj: [8192, 28672] });
+  });
+
+  it("gives GLM-5.2 the dense and attention shapes Pearl's tests use", () => {
+    expect(shapes('zai-org/GLM-5.2')).toMatchObject({ q_b_proj: [16384, 2048], o_proj: [6144, 16384], gate_up_proj: [24576, 6144], down_proj: [6144, 12288] });
+    expect(model('zai-org/GLM-5.2').experts).toMatchObject({ nE: 4096, hidden: 6144, count: 256, layers: 75 });
+  });
+
+  it("splits Gemma 4's full-attention layers from its sliding ones", () => {
+    const s = shapes('google/gemma-4-31B-it');
+    expect(s['qkv_proj (sliding)']).toEqual([(32 + 32) * 256, 5376]);
+    expect(s['qkv_proj (full)']).toEqual([(32 + 8) * 512, 5376]);
+  });
+
+  it('refuses a pre-fork Pearl checkpoint by name', () => {
+    expect(() => readConfig({ ...KNOWN[0]!.config, quantization_config: { quant_method: 'pearl' } })).toThrow(UnsupportedModel);
+  });
+});
+
+describe('what mines', () => {
+  it('mines every Llama 3.3 70B layer except the LM head', () => {
+    const r = autoTp(model('meta-llama/Llama-3.3-70B-Instruct'), gpu('h100'))!;
+    expect(r.tp).toBe(4);
+    expect(r.rows.filter((x) => !x.tile).map((x) => x.name)).toEqual(['lm_head']);
+  });
+
+  it('mines GLM-5.2 routed experts in BF16 but never its MLA kv_b_proj', () => {
+    expect(row('zai-org/GLM-5.2', 8, 'experts.w13 (gate/up)', 'b200').tile).toBe('4x64');
+    expect(row('zai-org/GLM-5.2', 8, 'kv_b_proj', 'b200').why).toBe('read directly by MLA');
+  });
+
+  it('leaves FP8 experts unmined while the dense layers of the same checkpoint mine', () => {
+    expect(row('deepseek-ai/DeepSeek-V3', 8, 'experts.w13 (gate/up)', 'b200').why).toBe('FP8 experts');
+    expect(row('deepseek-ai/DeepSeek-V3', 8, 'o_proj', 'b200').tile).not.toBeNull();
+  });
+
+  it("blocks gpt-oss experts for their SwiGLU limit", () => {
+    expect(row('openai/gpt-oss-120b', 1, 'experts.w13 (gate/up)').why).toBe('swiglu gate parameters');
+  });
+
+  it('keeps Gemma 4 qkv and gate/up off the miner because 5,376 is not a multiple of 512', () => {
+    expect(row('google/gemma-4-31B-it', 1, 'qkv_proj (sliding)').tile).toBeNull();
+    expect(row('google/gemma-4-31B-it', 1, 'gate_up_proj').tile).toBeNull();
+    expect(row('google/gemma-4-31B-it', 1, 'down_proj').tile).toBe('4x64');
+  });
+
+  it('loses a layer when a split takes its k below 1,024', () => {
+    expect(row('Qwen/Qwen3-0.6B', 1, 'down_proj').tile).not.toBeNull();
+    expect(row('Qwen/Qwen3-0.6B', 4, 'down_proj').tile).toBeNull();
+  });
+});
