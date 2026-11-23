@@ -74,3 +74,28 @@ describe('architectures', () => {
     expect(row('zai-org/GLM-5.3', 8, 'experts.w13 (gate/up)', 'b200').why).toBe('FP8 experts');
   });
 });
+
+describe('architectures with new attention', () => {
+  it("builds DeepSeek V4's attention as vLLM does, with wo_a off the miner", () => {
+    expect(shapes('deepseek-ai/DeepSeek-V4-Pro-0813')).toMatchObject({ fused_wqa_wkv: [2048, 7168], wq_b: [65536, 1536], wo_a: [16384, 4096], wo_b: [7168, 16384] });
+    expect(row('deepseek-ai/DeepSeek-V4-Pro-0813', 8, 'wo_a', 'b200').why).toBe('read directly by DeepGEMM');
+    expect(row('deepseek-ai/DeepSeek-V4-Pro-0813', 8, 'experts.w13 (gate/up)', 'b200').why).toBe('swiglu gate parameters');
+  });
+
+  it('splits Qwen3.8 into Gated DeltaNet and gated full-attention layers', () => {
+    const m = model('Qwen/Qwen3.8-27B');
+    expect(shapes('Qwen/Qwen3.8-27B')).toMatchObject({ in_proj_qkvz: [16384, 5120], out_proj: [5120, 6144], qkv_proj: [14336, 5120] });
+    expect(m.linears.find((l) => l.name === 'in_proj_qkvz')!.layers).toBe(48);
+    expect(m.linears.find((l) => l.name === 'qkv_proj')!.layers).toBe(16);
+  });
+
+  it('gives GLM-5.3 Flash 34 linear-attention layers and 11 MLA layers', () => {
+    const m = model('zai-org/GLM-5.3-Flash');
+    expect(m.linears.find((l) => l.name === 'in_proj_qkvbfg_a')).toMatchObject({ n: 24896, k: 4096, layers: 34 });
+    expect(m.linears.find((l) => l.name === 'q_b_proj')!.layers).toBe(11);
+  });
+
+  it('keeps the replicated shards of a merged projection whole when splitting', () => {
+    expect(row('zai-org/GLM-5.3-Flash', 4, 'in_proj_qkvbfg_a', 'b200').localN).toBe((3 * 8192 + 64) / 4 + 256);
+  });
+});

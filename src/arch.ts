@@ -11,6 +11,8 @@ export interface Linear {
   split: Split;
   layers: number;
   never?: string;
+  // Rows tensor parallelism does not split, such as replicated shards of a merged projection.
+  fixed?: number;
   // vLLM splits qkv by heads, not by rows.
   heads?: { q: number; kv: number; dim: number };
 }
@@ -43,7 +45,7 @@ export class UnsupportedModel extends Error {}
 
 // Architectures whose layers this reader builds as vLLM does. Newer ones with
 // linear or compressed attention have other linears and must not be guessed.
-const SUPPORTED = new Set(['llama', 'mistral', 'qwen2', 'qwen3', 'qwen2_moe', 'qwen3_moe', 'mixtral', 'gemma', 'gemma2', 'gemma3_text', 'gemma4_text', 'deepseek_v2', 'deepseek_v3', 'kimi_k2', 'glm_moe_dsa', 'gpt_oss']);
+const SUPPORTED = new Set(['llama', 'mistral', 'qwen2', 'qwen3', 'qwen2_moe', 'qwen3_moe', 'mixtral', 'gemma', 'gemma2', 'gemma3_text', 'gemma4_text', 'deepseek_v2', 'deepseek_v3', 'kimi_k2', 'glm_moe_dsa', 'gpt_oss', 'deepseek_v4', 'deepseek_v41_text', 'glm5_next_text', 'qwen3_5_text']);
 
 const num = (c: Config, ...keys: string[]): number | undefined => {
   for (const key of keys) if (typeof c[key] === 'number') return c[key] as number;
@@ -94,35 +96,84 @@ export function readConfig(root: Config): Model {
   const omitted: string[] = [];
 
   if (fmt === 'other') throw new UnsupportedModel('quantized in a format the FP8 miner does not load');
-  if (num(c, 'kv_lora_rank') !== undefined) {
-    // MLA (DeepSeek V2/V3, Kimi K2, GLM-5): vLLM fuses q_a and kv_a into one replicated projection.
-    const qLora = num(c, 'q_lora_rank');
-    const nope = need(c, 'qk_nope_head_dim');
-    const rope = need(c, 'qk_rope_head_dim');
-    const vDim = need(c, 'v_head_dim');
-    const kvLora = need(c, 'kv_lora_rank');
-    if (qLora) {
-      linears.push({ name: 'fused_qkv_a_proj', n: qLora + kvLora + rope, k: hidden, split: 'replicated', layers });
-      linears.push({ name: 'q_b_proj', n: heads * (nope + rope), k: qLora, split: 'column', layers });
-    } else {
-      linears.push({ name: 'q_proj', n: heads * (nope + rope), k: hidden, split: 'column', layers });
-      linears.push({ name: 'kv_a_proj_with_mqa', n: kvLora + rope, k: hidden, split: 'replicated', layers });
-    }
-    linears.push({ name: 'kv_b_proj', n: heads * (nope + vDim), k: kvLora, split: 'column', layers, never: 'read directly by MLA' });
-    linears.push({ name: 'o_proj', n: hidden, k: heads * vDim, split: 'row', layers });
-    if (num(c, 'index_n_heads') !== undefined) omitted.push('sparse-attention indexer projections');
+  const types = Array.isArray(c.layer_types) ? (c.layer_types as string[]) : [];
+  const count = (t: string): number => types.slice(0, layers).filter((x) => x === t).length;
+  const add = (l: Linear): void => {
+    if (l.layers > 0) linears.push(l);
+  };
+  if (type === 'deepseek_v4' || type === 'deepseek_v41_text') {
+    // deepseek_v4/attention.py: wo_a runs as DeepGEMM on its raw weight
+    // (nvidia/ops/o_proj.py), so like MLA's kv_b_proj it never reaches Pearl.
+    const headDim = need(c, 'head_dim');
+    const qLora = need(c, 'q_lora_rank');
+    const groups = need(c, 'o_groups');
+    const oLora = need(c, 'o_lora_rank');
+    add({ name: 'fused_wqa_wkv', n: qLora + headDim, k: hidden, split: 'replicated', layers });
+    add({ name: 'wq_b', n: heads * headDim, k: qLora, split: 'column', layers });
+    add({ name: 'wo_a', n: groups * oLora, k: (heads * headDim) / groups, split: 'column', layers, never: 'read directly by DeepGEMM' });
+    add({ name: 'wo_b', n: hidden, k: groups * oLora, split: 'row', layers });
+    const ratios = Array.isArray(c.compress_ratios) ? (c.compress_ratios as number[]).slice(0, layers) : [];
+    if (type === 'deepseek_v4') add({ name: 'indexer.wq_b', n: need(c, 'index_n_heads') * need(c, 'index_head_dim'), k: qLora, split: 'replicated', layers: ratios.filter((r) => r === 4).length });
+    omitted.push('KV compressors and indexer gates, built without a quant config', 'hyper-connection mixing');
+    if (type === 'deepseek_v41_text') omitted.push('engram and candidate indexer');
+  } else if (type === 'qwen3_5_text') {
+    // Every full_attention_interval-th layer is full attention; the rest are Gated DeltaNet (qwen_gdn_linear_attn.py).
+    const full = Math.floor(layers / need(c, 'full_attention_interval'));
+    const keyDim = need(c, 'linear_key_head_dim') * need(c, 'linear_num_key_heads');
+    const valueDim = need(c, 'linear_value_head_dim') * need(c, 'linear_num_value_heads');
+    add({ name: 'in_proj_qkvz', n: 2 * keyDim + 2 * valueDim, k: hidden, split: 'column', layers: layers - full });
+    add({ name: 'in_proj_ba', n: 2 * need(c, 'linear_num_value_heads'), k: hidden, split: 'column', layers: layers - full });
+    add({ name: 'out_proj', n: hidden, k: valueDim, split: 'row', layers: layers - full });
+    const headDim = need(c, 'head_dim');
+    // attn_output_gate doubles the query heads in qkv_proj.
+    const q = c.attn_output_gate === true ? 2 * heads : heads;
+    add({ name: 'qkv_proj', n: (q + 2 * kvHeads) * headDim, k: hidden, split: 'column', layers: full, heads: { q, kv: kvHeads, dim: headDim } });
+    add({ name: 'o_proj', n: hidden, k: heads * headDim, split: 'row', layers: full });
+    omitted.push('the DeltaNet convolution, built without a quant config');
+  } else if (type === 'glm5_next_text') {
+    // glm5next/common/kda.py for linear-attention layers, attention.py's MLA for the rest.
+    const lin = (c.linear_attn_config ?? {}) as Config;
+    const kdaHeads = need(lin, 'num_heads');
+    const kdaDim = need(lin, 'head_dim');
+    const kda = count('linear_attention');
+    add({ name: 'in_proj_qkvbfg_a', n: 3 * kdaHeads * kdaDim + kdaHeads + 2 * kdaDim, k: hidden, split: 'column', layers: kda, fixed: 2 * kdaDim });
+    add({ name: 'f_b_proj', n: kdaHeads * kdaDim, k: kdaDim, split: 'column', layers: kda });
+    add({ name: 'g_b_proj', n: kdaHeads * kdaDim, k: kdaDim, split: 'column', layers: kda });
+    add({ name: 'kda.o_proj', n: hidden, k: kdaHeads * kdaDim, split: 'row', layers: kda });
+    mla(count('deepseek_sparse_attention'));
+    omitted.push('hyper-connection mixing');
+  } else if (num(c, 'kv_lora_rank') !== undefined) {
+    mla(layers);
   } else {
     const headDim = num(c, 'head_dim') ?? hidden / heads;
-    const types = Array.isArray(c.layer_types) ? (c.layer_types as string[]) : [];
     const globalDim = num(c, 'global_head_dim');
     const globalKv = num(c, 'num_global_key_value_heads');
     // Gemma 4's full-attention layers use wider heads and fewer key/value heads than its sliding ones.
-    const full = globalDim !== undefined ? types.filter((t) => t === 'full_attention').length : 0;
+    const full = globalDim !== undefined ? count('full_attention') : 0;
     const groups = full > 0 ? [{ layers: layers - full, dim: headDim, kv: kvHeads, tag: ' (sliding)' }, { layers: full, dim: globalDim!, kv: globalKv ?? kvHeads, tag: ' (full)' }] : [{ layers, dim: headDim, kv: kvHeads, tag: '' }];
     for (const g of groups) {
       linears.push({ name: `qkv_proj${g.tag}`, n: (heads + 2 * g.kv) * g.dim, k: hidden, split: 'column', layers: g.layers, heads: { q: heads, kv: g.kv, dim: g.dim } });
       linears.push({ name: `o_proj${g.tag}`, n: hidden, k: heads * g.dim, split: 'row', layers: g.layers });
     }
+  }
+
+  // MLA (DeepSeek V2/V3, Kimi K2, GLM-5): vLLM fuses q_a and kv_a into one replicated projection.
+  function mla(n: number): void {
+    const qLora = num(c, 'q_lora_rank');
+    const nope = need(c, 'qk_nope_head_dim');
+    const rope = num(c, 'qk_rope_head_dim') ?? 0;
+    const vDim = need(c, 'v_head_dim');
+    const kvLora = need(c, 'kv_lora_rank');
+    if (qLora) {
+      add({ name: 'fused_qkv_a_proj', n: qLora + kvLora + rope, k: hidden, split: 'replicated', layers: n });
+      add({ name: 'q_b_proj', n: heads * (nope + rope), k: qLora, split: 'column', layers: n });
+    } else {
+      add({ name: 'q_proj', n: heads * (nope + rope), k: hidden, split: 'column', layers: n });
+      add({ name: 'kv_a_proj_with_mqa', n: kvLora + rope, k: hidden, split: 'replicated', layers: n });
+    }
+    add({ name: 'kv_b_proj', n: heads * (nope + vDim), k: kvLora, split: 'column', layers: n, never: 'read directly by MLA' });
+    add({ name: 'o_proj', n: hidden, k: heads * vDim, split: 'row', layers: n });
+    if (num(c, 'index_n_heads') !== undefined) omitted.push('sparse-attention indexer projections');
   }
 
   const expertCount = num(c, 'n_routed_experts', 'num_experts', 'num_local_experts') ?? 0;

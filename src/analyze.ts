@@ -42,7 +42,8 @@ export function shard(l: Linear, tp: number): { n: number; k: number } | null {
     if (q % tp !== 0 || (kv >= tp ? kv % tp !== 0 : tp % kv !== 0)) return null;
     return { n: (q / tp + 2 * Math.max(1, kv / tp)) * dim, k: l.k };
   }
-  return l.n % tp === 0 ? { n: l.n / tp, k: l.k } : null;
+  const split = l.n - (l.fixed ?? 0);
+  return split % tp === 0 ? { n: split / tp + (l.fixed ?? 0), k: l.k } : null;
 }
 
 export function params(m: Model): number {
