@@ -32,7 +32,13 @@ export interface Result {
 }
 
 const BYTES: Record<Format, number> = { bf16: 2, fp8: 1.03, nvfp4: 0.56, mxfp4: 0.53, other: 2 };
-// Room left for activations, the KV cache and the miner's own workspaces.
+// GPU bytes per weight of a layer Pearl's FP8 miner mines, which replace the
+// source weight (state.py): int8 codes 1, BF16 scales per 8 weights 0.25,
+// b_prime 1, commit stats and hash roots about 0.06, and for dense layers the
+// FP8 fallback copy 1 (experts have none).
+const MINED_EXPERT = 1 + 0.25 + 1 + 0.06;
+const MINED_DENSE = MINED_EXPERT + 1;
+// Room left for activations and the KV cache.
 const HEADROOM = 0.75;
 
 export function shard(l: Linear, tp: number): { n: number; k: number } | null {
@@ -46,14 +52,6 @@ export function shard(l: Linear, tp: number): { n: number; k: number } | null {
   }
   const split = l.n - (l.fixed ?? 0);
   return split % tp === 0 ? { n: split / tp + (l.fixed ?? 0), k: l.k } : null;
-}
-
-export function params(m: Model): number {
-  let total = m.linears.reduce((s, l) => s + l.n * l.k * l.layers, 0);
-  if (m.tiedEmbeddings) total -= m.vocab * m.hidden;
-  total += m.vocab * m.hidden;
-  if (m.experts) total += m.experts.count * m.experts.layers * (m.experts.nE * m.experts.hidden + m.experts.hidden * m.experts.intermediate);
-  return total;
 }
 
 /** Null when the model cannot be split this many ways. */
@@ -75,7 +73,19 @@ export function analyze(m: Model, gpu: Gpu, tp: number, pp = 1): Result | null {
   }
   const work = rows.reduce((s, r) => s + r.work, 0);
   const mined = rows.reduce((s, r) => s + r.minedWork, 0);
-  const bytesPerGpu = (params(m) * BYTES[m.format]) / (tp * pp);
+  // Per GPU: every layer's shard, mined ones in the miner's planes, the rest in the
+  // checkpoint's format (the LM head and embeddings in BF16), over the pipeline stages.
+  let bytes = (m.tiedEmbeddings ? 0 : (m.vocab * m.hidden * 2) / tp);
+  for (const r of rows) {
+    const shardWeights = r.localN * r.localK * r.layers;
+    if (r.name.startsWith('experts.')) {
+      const all = e!.count * shardWeights;
+      bytes += all * (r.tile ? MINED_EXPERT : BYTES[m.format]);
+    } else {
+      bytes += shardWeights * (r.tile ? MINED_DENSE : r.name === 'lm_head' ? 2 : BYTES[m.format]);
+    }
+  }
+  const bytesPerGpu = bytes / pp;
   return { tp, pp, rows, work, mined, share: work > 0 ? mined / work : 0, bytesPerGpu, fits: bytesPerGpu <= gpu.memory * 1e9 * HEADROOM };
 }
 

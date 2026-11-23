@@ -134,3 +134,19 @@ describe('GPU counts', () => {
     expect(r.pp).toBeGreaterThan(1);
   });
 });
+
+describe('memory', () => {
+  it("counts the miner's planes, about 3.3 bytes per mined dense weight against BF16's 2", () => {
+    const r = analyze(model('meta-llama/Llama-3.1-8B-Instruct'), gpu('h100'), 1)!;
+    const mined = r.rows.filter((x) => x.tile).reduce((s, x) => s + x.localN * x.localK * x.layers, 0);
+    expect(r.bytesPerGpu).toBeGreaterThan(mined * 3.3);
+    expect(r.bytesPerGpu).toBeLessThan(mined * 3.4 + 128256 * 4096 * 4);
+  });
+
+  it('keeps layers that do not mine in the checkpoint format', () => {
+    const r = analyze(model('openai/gpt-oss-120b'), gpu('h100'), 2)!;
+    const experts = r.rows.find((x) => x.name === 'experts.w13 (gate/up)')!;
+    expect(experts.tile).toBeNull();
+    expect(r.bytesPerGpu).toBeLessThan(60e9);
+  });
+});
