@@ -21,6 +21,8 @@ export interface Row {
 
 export interface Result {
   tp: number;
+  // Pipeline stages: each holds a share of the layers, so shapes follow tp alone.
+  pp: number;
   rows: Row[];
   work: number;
   mined: number;
@@ -55,7 +57,7 @@ export function params(m: Model): number {
 }
 
 /** Null when the model cannot be split this many ways. */
-export function analyze(m: Model, gpu: Gpu, tp: number): Result | null {
+export function analyze(m: Model, gpu: Gpu, tp: number, pp = 1): Result | null {
   const rows: Row[] = [];
   for (const l of m.linears) {
     const s = shard(l, tp);
@@ -73,18 +75,27 @@ export function analyze(m: Model, gpu: Gpu, tp: number): Result | null {
   }
   const work = rows.reduce((s, r) => s + r.work, 0);
   const mined = rows.reduce((s, r) => s + r.minedWork, 0);
-  const bytesPerGpu = (params(m) * BYTES[m.format]) / tp;
-  return { tp, rows, work, mined, share: work > 0 ? mined / work : 0, bytesPerGpu, fits: bytesPerGpu <= gpu.memory * 1e9 * HEADROOM };
+  const bytesPerGpu = (params(m) * BYTES[m.format]) / (tp * pp);
+  return { tp, pp, rows, work, mined, share: work > 0 ? mined / work : 0, bytesPerGpu, fits: bytesPerGpu <= gpu.memory * 1e9 * HEADROOM };
 }
 
-/** The smallest split of 1, 2, 4 or 8 that holds the weights, or 8 when none does. */
+const MAX_TP = 8; // one node; vLLM splits further by pipeline stages
+
+/** The fewest GPUs, in powers of two, that hold the weights: heads first, then pipeline stages. */
 export function autoTp(m: Model, gpu: Gpu): Result | null {
-  let last: Result | null = null;
-  for (const tp of [1, 2, 4, 8]) {
-    const r = analyze(m, gpu, tp);
-    if (r === null) continue;
-    last = r;
-    if (r.fits) return r;
+  for (let gpus = 1; gpus <= 256; gpus *= 2) {
+    const r = onGpus(m, gpu, gpus);
+    if (r?.fits) return r;
   }
-  return last;
+  return onGpus(m, gpu, 256);
+}
+
+/** A given number of GPUs: the widest head split of at most 8 that divides it and the model, the rest as pipeline stages. */
+export function onGpus(m: Model, gpu: Gpu, gpus: number): Result | null {
+  for (let tp = Math.min(MAX_TP, gpus); tp >= 1; tp--) {
+    if (gpus % tp !== 0) continue;
+    const r = analyze(m, gpu, tp, gpus / tp);
+    if (r) return r;
+  }
+  return null;
 }

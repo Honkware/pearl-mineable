@@ -2,7 +2,7 @@
 // popular ones. Expected shapes are each model's real layer sizes; the GLM-5.2
 // ones are the (n, k) pairs Pearl's own fp8-scheme tests use for that model.
 import { describe, expect, it } from 'vitest';
-import { analyze, autoTp } from '../src/analyze.js';
+import { analyze, autoTp, onGpus } from '../src/analyze.js';
 import { readConfig, UnsupportedModel } from '../src/arch.js';
 import { gpu } from '../src/gpus.js';
 import { KNOWN } from '../src/known.js';
@@ -115,5 +115,22 @@ describe('more served architectures', () => {
 
   it("doubles Qwen3-Next's query heads for its output gate by default", () => {
     expect(shapes('Qwen/Qwen3-Next-80B-A3B-Instruct')).toMatchObject({ qkv_proj: [(32 + 4) * 256, 2048], in_proj_qkvz: [12288, 2048] });
+  });
+});
+
+describe('GPU counts', () => {
+  it('runs 6 GPUs as a 2-way head split in 3 pipeline stages when 64 heads do not divide by 6', () => {
+    expect(onGpus(model('meta-llama/Llama-3.3-70B-Instruct'), gpu('h100'), 6)).toMatchObject({ tp: 2, pp: 3 });
+  });
+
+  it('keeps the head split within one 8-GPU node and adds pipeline stages past it', () => {
+    expect(onGpus(model('meta-llama/Llama-3.3-70B-Instruct'), gpu('h100'), 16)).toMatchObject({ tp: 8, pp: 2 });
+  });
+
+  it('picks enough GPUs for a model too large for one node', () => {
+    const r = autoTp(model('deepseek-ai/DeepSeek-V4-Pro-0813'), gpu('h100'))!;
+    expect(r.fits).toBe(true);
+    expect(r.tp).toBe(8);
+    expect(r.pp).toBeGreaterThan(1);
   });
 });
