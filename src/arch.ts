@@ -113,8 +113,19 @@ export function readConfig(root: Config): Model {
     add({ name: 'wo_a', n: groups * oLora, k: (heads * headDim) / groups, split: 'column', layers, never: 'read directly by DeepGEMM' });
     add({ name: 'wo_b', n: hidden, k: groups * oLora, split: 'row', layers });
     const ratios = Array.isArray(c.compress_ratios) ? (c.compress_ratios as number[]).slice(0, layers) : [];
-    if (type === 'deepseek_v4') add({ name: 'indexer.wq_b', n: need(c, 'index_n_heads') * need(c, 'index_head_dim'), k: qLora, split: 'replicated', layers: ratios.filter((r) => r === 4).length });
-    omitted.push('KV compressors and indexer gates, built without a quant config', 'hyper-connection mixing');
+    const overlapped = ratios.filter((r) => r === 4).length;
+    // compressor.py: fused wkv/wgate, twice as wide where the ratio-4 windows overlap, replicated and never quantized.
+    const raw = 'built without a quant config';
+    add({ name: 'compressor (ratio 4)', n: 4 * headDim, k: hidden, split: 'replicated', layers: overlapped, never: raw });
+    add({ name: 'compressor', n: 2 * headDim, k: hidden, split: 'replicated', layers: ratios.filter((r) => r > 1 && r !== 4).length, never: raw });
+    if (type === 'deepseek_v4') {
+      const indexDim = need(c, 'index_head_dim');
+      const indexHeads = need(c, 'index_n_heads');
+      add({ name: 'indexer.wq_b', n: indexHeads * indexDim, k: qLora, split: 'replicated', layers: overlapped });
+      add({ name: 'indexer.compressor', n: 4 * indexDim, k: hidden, split: 'replicated', layers: overlapped, never: raw });
+      add({ name: 'indexer.weights_proj', n: indexHeads, k: hidden, split: 'replicated', layers: overlapped, never: raw });
+    }
+    omitted.push('hyper-connection mixing');
     if (type === 'deepseek_v41_text') omitted.push('engram and candidate indexer');
   } else if (type === 'qwen3_5_text' || type === 'qwen3_next') {
     // Every full_attention_interval-th layer is full attention; the rest are Gated DeltaNet (qwen_gdn_linear_attn.py).
