@@ -68,7 +68,7 @@ function listPage(): string {
     <div class="filters">${controls()}<form class="search" id="search"><input name="id" placeholder="Hugging Face ID" autocomplete="off"></form></div>
     <div id="search-error" class="err" hidden></div>
     <div class="scroll"><table>
-      <thead><tr><th></th><th>Model</th><th>Kind</th><th>Weights</th><th>TP</th><th>Mined</th><th class="n">PRL / 1M tokens</th></tr></thead>
+      <thead><tr><th></th><th>Model</th><th>Kind</th><th>Weights</th><th>TP</th><th>Mineable</th><th class="n">PRL / 1M tokens</th></tr></thead>
       <tbody>${body}</tbody>
     </table></div>
   </div>`;
@@ -89,7 +89,7 @@ function modelPage(id: string): string {
   return `<div class="title"><h1>${esc(entry.name)}</h1><span class="chip mono">${esc(id)}</span></div>
   <div class="filters">${controls()}</div>
   ${stats([
-    ['Mined', pct(r.share)],
+    ['Mineable', pct(r.share)],
     ['PRL / 1M tokens', prlPerMillion(r)],
     ['TP', `${r.tp}${r.fits ? '' : '+'}`],
     ['GB per GPU', String(Math.round(r.bytesPerGpu / 1e9))],
