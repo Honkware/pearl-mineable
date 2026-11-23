@@ -34,3 +34,12 @@ describe('pre-fork mining', () => {
     expect(rows).toMatchObject({ 'experts.w13 (gate/up)': 48, 'experts.w2 (down)': 0 });
   });
 });
+
+describe('credited work', () => {
+  it('credits k rounded down to the noise rank of 128', () => {
+    const quant = { config_groups: { g: { weights: { type: 'int', num_bits: 7 }, targets: ['Linear'] } } };
+    const row = { name: 'o_proj', n: 4096, k: 1100, localN: 4096, localK: 1100, layers: 2, tile: null, why: null, work: 1100, minedWork: 0, minedLayers: 0 };
+    const fp8 = { tp: 1, pp: 1, rows: [row], work: 1100, mined: 0, share: 0, bytesPerGpu: 0, fits: true };
+    expect(analyzeNow(quant, fp8).rows[0]!.minedWork).toBe(1024);
+  });
+});

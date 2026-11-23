@@ -6,6 +6,8 @@ import type { Result } from './analyze.js';
 import now from '../vectors/now.json' with { type: 'json' };
 
 export const { min_m: MIN_M, min_n: MIN_N, min_k: MIN_K } = now.thresholds;
+// miner_base settings.py noise_rank default, which is also the rank-penalty base, so no penalty applies.
+const NOISE_RANK = 128;
 
 interface Group {
   weights: { type: string; num_bits: number };
@@ -46,7 +48,9 @@ export function analyzeNow(q: PearlCheckpoint, fp8: Result): Result {
     for (let i = 0; i < r.layers; i++) if (modules(r.name, i).every((name) => isInt7(name, q))) layers += 1;
     const fits = r.localN >= MIN_N && r.localK >= MIN_K;
     const minedLayers = fits ? layers : 0;
-    return { ...r, minedLayers, minedWork: (r.work * minedLayers) / r.layers };
+    // Credited work uses k rounded down to the noise rank (inner_hash_per_matmul in noisy_gemm.py, rank 128 by default).
+    const credited = Math.floor(r.localK / NOISE_RANK) * NOISE_RANK / r.localK;
+    return { ...r, minedLayers, minedWork: (r.work * minedLayers * credited) / r.layers };
   });
   const mined = rows.reduce((s, r) => s + r.minedWork, 0);
   return { ...fp8, rows, mined, share: fp8.work > 0 ? mined / fp8.work : 0 };
