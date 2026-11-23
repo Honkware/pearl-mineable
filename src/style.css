@@ -207,3 +207,13 @@ td .sub.warn { color: var(--warn); }
 .err { color: var(--bad); padding: 6px 0; }
 /* .wrap zeroes vertical padding and outranks the main rule above. */
 main.wrap { padding-top: 24px; padding-bottom: 40px; }
+.strip { background: var(--card); border-bottom: 1px solid var(--line); }
+.strip .wrap { display: flex; flex-wrap: wrap; }
+.strip .wrap > div { display: flex; flex-direction: column; padding: 9px 22px 9px 0; margin-right: 22px; border-right: 1px solid var(--line); }
+.strip .wrap > div:last-child { border-right: 0; }
+.strip span { color: var(--faint); font-size: 12px; }
+.strip b { font-weight: 600; font-size: 14px; }
+.lookup { display: flex; gap: 10px; margin-bottom: 16px; }
+.lookup input { flex: 1; font: inherit; font-size: 15px; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 11px 14px; min-width: 0; }
+.lookup input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.lookup button { font: inherit; font-weight: 600; color: var(--bg); background: var(--ink); border: 0; border-radius: 10px; padding: 0 22px; cursor: pointer; }

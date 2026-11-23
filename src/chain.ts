@@ -2,7 +2,7 @@
 // shard m*n*k of work and a win has probability target * m*n*k / 2^256
 // (mining_config.py effective_work_per_matmul), so one mined MAC earns the
 // block subsidy times target / 2^256, with no hashrate figure involved.
-import { blockSubsidy } from 'pearljs/consensus';
+import { blockSubsidy, difficultyForBits } from 'pearljs/consensus';
 import { jackpotTarget } from 'pearljs/mining';
 import { networks } from 'pearljs/networks';
 import { PearldClient } from 'pearljs/rpc';
@@ -13,13 +13,14 @@ export interface Tip {
   /** PRL one mined multiply-accumulate earns on average. */
   prlPerMac: number;
   subsidy: number;
+  difficulty: number;
 }
 
 export const PUBLIC_RPC = 'https://pearlchain.live/rpc';
 
 export function tipFrom(height: number, bits: number): Tip {
   const subsidy = Number(blockSubsidy(networks.mainnet, height)) / 1e8;
-  return { height, bits, subsidy, prlPerMac: (Number(jackpotTarget(bits)) / 2 ** 256) * subsidy };
+  return { height, bits, subsidy, difficulty: difficultyForBits(bits, networks.mainnet), prlPerMac: (Number(jackpotTarget(bits)) / 2 ** 256) * subsidy };
 }
 
 export async function fetchTip(url = PUBLIC_RPC): Promise<Tip> {

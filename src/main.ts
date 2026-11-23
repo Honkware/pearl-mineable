@@ -56,9 +56,11 @@ function listPage(): string {
         <td>${bar(r!.share)}</td><td class="n">${prlPerMillion(r!)}</td></tr>`;
     })
     .join('');
-  return `<div class="card">
-    <div class="filters">${controls()}<form class="search" id="search"><input name="id" placeholder="Hugging Face ID" autocomplete="off"></form></div>
-    <div id="search-error" class="err" hidden></div>
+  return `<div class="title"><h1>Models</h1></div>
+  <form class="lookup" id="search"><input name="id" placeholder="Hugging Face ID, such as Qwen/Qwen3-8B" autocomplete="off"><button type="submit">Check</button></form>
+  <div id="search-error" class="err" hidden></div>
+  <div class="card">
+    <div class="filters">${controls()}</div>
     <div class="scroll"><table>
       <thead><tr><th></th><th>Model</th><th>Kind</th><th>Weights</th><th>TP</th><th>Mineable</th><th class="n">PRL / 1M tokens</th></tr></thead>
       <tbody>${body}</tbody>
@@ -73,6 +75,11 @@ function modelPage(id: string): string {
   const model = readConfig(entry.config);
   const r = run(model);
   if (!r) return `<div class="title"><h1>${esc(entry.name)}</h1></div><div class="filters">${controls()}</div><div class="card empty">Cannot split ${state.tp} ways</div>`;
+  const byGpu = GPUS.map((g) => {
+    const x = state.tp === 'auto' ? autoTp(model, g) : analyze(model, g, state.tp);
+    return `<tr><td class="who">${esc(g.name)}</td><td>${g.memory} GB</td><td>${x ? `${x.tp}${x.fits ? '' : '+'}` : '-'}</td>
+      <td>${x ? bar(x.share) : '-'}</td><td class="n">${x ? prlPerMillion(x) : '-'}</td></tr>`;
+  }).join('');
   const rows = r.rows
     .map((x) => `<tr><td class="mono">${esc(x.name)}</td><td class="n">${int(x.n)}</td><td class="n">${int(x.k)}</td>
       <td class="n">${int(x.localN)} × ${int(x.localK)}</td><td class="n">${x.layers}</td><td>${x.tile ?? '-'}</td>
@@ -87,7 +94,15 @@ function modelPage(id: string): string {
     ['GB per GPU', String(Math.round(r.bytesPerGpu / 1e9))],
   ])}
   <div class="card">
-        <div class="scroll"><table>
+    <div class="head"><h2>By GPU</h2></div>
+    <div class="scroll"><table>
+      <thead><tr><th>GPU</th><th>Memory</th><th>TP</th><th>Mineable</th><th class="n">PRL / 1M tokens</th></tr></thead>
+      <tbody>${byGpu}</tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <div class="head"><h2>Layers</h2></div>
+    <div class="scroll"><table>
       <thead><tr><th>Linear</th><th class="n">n</th><th class="n">k</th><th class="n">Per GPU</th><th class="n">Layers</th><th>Tile</th><th class="n">Work</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
@@ -127,7 +142,14 @@ async function lookUp(id: string): Promise<void> {
 function render(): void {
   const match = /^#\/m\/(.+)$/.exec(location.hash);
   app.innerHTML = match ? modelPage(decodeURIComponent(match[1]!)) : listPage();
-  document.getElementById('tip')!.innerHTML = state.tip ? `<span class="live"></span>mainnet <b>${int(state.tip.height)}</b>` : state.tipError ? 'chain unreachable' : 'mainnet';
+  const t = state.tip;
+  document.getElementById('tip')!.innerHTML = t ? '<span class="live"></span>mainnet' : state.tipError ? 'chain unreachable' : 'mainnet';
+  document.getElementById('strip')!.innerHTML = [
+    ['Block height', t ? int(t.height) : '-'],
+    ['Difficulty', t ? `${(t.difficulty / 1e6).toFixed(2)} M` : '-'],
+    ['Block reward', t ? `${t.subsidy.toFixed(2)} PRL` : '-'],
+    ['FP8 fork on mainnet', 'Not scheduled'],
+  ].map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
   document.getElementById('foot')!.innerHTML = 'pearljs';
 }
 
