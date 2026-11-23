@@ -1,7 +1,5 @@
-// A Hugging Face config.json read as the matrices vLLM builds from it, with
-// what each does per prompt token. Fused layers are fused the way vLLM fuses
-// them (q/k/v, gate/up, MLA's q_a and kv_a), and each layer says how tensor
-// parallelism splits it.
+// Layers are fused as vLLM fuses them (q/k/v, gate/up, MLA's q_a with kv_a),
+// since Pearl's rules apply to the fused shard.
 
 export type Split = 'column' | 'row' | 'replicated';
 export type Format = 'bf16' | 'fp8' | 'nvfp4' | 'mxfp4' | 'other';
@@ -11,23 +9,20 @@ export interface Linear {
   n: number;
   k: number;
   split: Split;
-  /** Decoder layers that have it. */
   layers: number;
-  /** Why it never mines, whatever its shape. */
   never?: string;
-  /** Query and key/value heads, for a qkv projection, whose split follows the heads. */
+  // vLLM splits qkv by heads, not by rows.
   heads?: { q: number; kv: number; dim: number };
 }
 
 export interface Experts {
   count: number;
   topK: number;
-  /** Rows of one expert's fused gate and up weight (w13), before splitting. */
+  // Rows of one expert's fused gate/up weight, before splitting.
   nE: number;
   hidden: number;
   intermediate: number;
   layers: number;
-  /** Why the expert GEMM cannot mine in this checkpoint, if it can't. */
   blocked?: string;
 }
 
@@ -39,7 +34,6 @@ export interface Model {
   tiedEmbeddings: boolean;
   linears: Linear[];
   experts: Experts | null;
-  /** Parts of the model left out of the count. */
   omitted: string[];
 }
 
@@ -82,7 +76,6 @@ function moeLayers(c: Config, total: number): number {
   return sparse;
 }
 
-/** Reads a config.json (multimodal ones through text_config) into the matrices of its language model. */
 export function readConfig(root: Config): Model {
   const c = (root.text_config ?? root) as Config;
   const type = String(c.model_type ?? root.model_type ?? '');

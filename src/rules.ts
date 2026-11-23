@@ -1,7 +1,5 @@
-// Pearl's FP8 rules for whether one layer shard can mine, from the fp8-scheme
-// miner. Each check names the function it comes from; vectors/tiles.json holds
-// Pearl's own answers over a grid of shapes and test/rules.test.ts holds this
-// file to them.
+// Ported from the fp8-scheme miner. test/rules.test.ts checks every shape in
+// vectors/tiles.json, which Pearl's own functions produced.
 
 export type Arch = 'SM90' | 'SM100' | 'SM120';
 export type Tile = '4x64' | '16x32' | '4x128';
@@ -42,11 +40,7 @@ function selectTile(n: number, k: number, arch: Arch): TileSpec | null {
   return COMMITTED[arch].find((t) => n % t.cols === 0 && k <= t.maxK) ?? null;
 }
 
-/**
- * The tile a dense shard of shape (n, k) mines with, or null when it cannot:
- * state.py can_mine_layer for a dense layer, including the per-architecture
- * kernel check (_lottery_family_available).
- */
+/** state.py can_mine_layer for a dense shard, kernel check included. */
 export function denseTile(n: number, k: number, arch: Arch): Tile | null {
   if (!supportsLayerShape(n, k)) return null;
   const tile = selectTile(n, k, arch);

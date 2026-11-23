@@ -1,4 +1,3 @@
-// What one mined multiply-accumulate earns, from the tip's bits and height.
 import { describe, expect, it } from 'vitest';
 import { tipFrom } from '../src/chain.js';
 

@@ -4,12 +4,11 @@ export interface Gpu {
   id: string;
   name: string;
   arch: Arch;
-  /** Memory per card in GB, from NVIDIA's specifications; B200 is 180 GB per card in a DGX B200. */
+  // GB. B200 is 180, as a DGX B200 reports it.
   memory: number;
 }
 
-// The cards Pearl's FP8 miner loads on: get_min_capability is SM90, and the
-// kernels exist for SM90, SM100 and SM120.
+// get_min_capability is SM90, and the kernels exist for SM90, SM100 and SM120.
 export const GPUS: Gpu[] = [
   { id: 'h100', name: 'H100', arch: 'SM90', memory: 80 },
   { id: 'h200', name: 'H200', arch: 'SM90', memory: 141 },
