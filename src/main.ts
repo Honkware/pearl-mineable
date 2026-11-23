@@ -47,7 +47,8 @@ function seg<T>(options: [T, string][], current: T, attr: string): string {
 }
 
 function controls(): string {
-  return `${seg(GPUS.map((g) => [g.id, g.name] as [string, string]), state.gpu, 'gpu')}
+  const cards = GPUS.map((g) => `<option value="${g.id}"${g.id === state.gpu ? ' selected' : ''}>${esc(g.name)}</option>`).join('');
+  return `<select class="pick" aria-label="GPU">${cards}</select>
     ${seg([['auto', 'Auto TP'], [1, '1'], [2, '2'], [4, '4'], [8, '8']] as [string | number, string][], state.tp, 'tp')}
     <input class="gpus" type="number" min="1" max="64" placeholder="GPUs" value="${typeof state.tp === 'number' && ![1, 2, 4, 8].includes(state.tp) ? state.tp : ''}">`;
 }
@@ -209,6 +210,11 @@ app.addEventListener('click', (e) => {
 });
 app.addEventListener('change', (e) => {
   const input = e.target as HTMLInputElement;
+  if (input.classList.contains('pick')) {
+    state.gpu = input.value;
+    render();
+    return;
+  }
   if (!input.classList.contains('gpus')) return;
   const n = Math.round(Number(input.value));
   state.tp = Number.isFinite(n) && n >= 1 && n <= 64 ? n : 'auto';
