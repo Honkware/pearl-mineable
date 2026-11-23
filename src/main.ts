@@ -191,7 +191,7 @@ function render(): void {
     ['Difficulty', t ? `${(t.difficulty / 1e6).toFixed(2)} M` : '-'],
     ['Block reward', t ? `${t.subsidy.toFixed(2)} PRL` : '-'],
   ].map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
-  document.getElementById('foot')!.innerHTML = 'pearljs';
+  document.getElementById('foot')!.innerHTML = 'Made with <a href="https://github.com/Honkware/pearljs">pearljs</a>';
 }
 
 app.addEventListener('click', (e) => {
