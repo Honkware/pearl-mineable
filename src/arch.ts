@@ -45,7 +45,7 @@ export class UnsupportedModel extends Error {}
 
 // Architectures whose layers this reader builds as vLLM does. Newer ones with
 // linear or compressed attention have other linears and must not be guessed.
-const SUPPORTED = new Set(['llama', 'mistral', 'qwen2', 'qwen3', 'qwen2_moe', 'qwen3_moe', 'mixtral', 'gemma', 'gemma2', 'gemma3_text', 'gemma4_text', 'deepseek_v2', 'deepseek_v3', 'kimi_k2', 'glm_moe_dsa', 'gpt_oss', 'deepseek_v4', 'deepseek_v41_text', 'glm5_next_text', 'qwen3_5_text']);
+const SUPPORTED = new Set(['llama', 'mistral', 'qwen2', 'qwen3', 'qwen2_moe', 'qwen3_moe', 'mixtral', 'gemma', 'gemma2', 'gemma3_text', 'gemma4_text', 'deepseek_v2', 'deepseek_v3', 'kimi_k2', 'glm_moe_dsa', 'gpt_oss', 'glm4_moe', 'llama4_text', 'qwen3_next', 'deepseek_v4', 'deepseek_v41_text', 'glm5_next_text', 'qwen3_5_text']);
 
 const num = (c: Config, ...keys: string[]): number | undefined => {
   for (const key of keys) if (typeof c[key] === 'number') return c[key] as number;
@@ -75,7 +75,7 @@ function format(root: Config, text: Config): Format {
 
 function moeLayers(c: Config, total: number): number {
   const firstDense = num(c, 'first_k_dense_replace') ?? 0;
-  const step = num(c, 'decoder_sparse_step', 'moe_layer_freq') ?? 1;
+  const step = num(c, 'decoder_sparse_step', 'moe_layer_freq', 'interleave_moe_layer_step') ?? 1;
   const mlpOnly = Array.isArray(c.mlp_only_layers) ? (c.mlp_only_layers as number[]) : [];
   let sparse = 0;
   for (let i = 0; i < total; i++) if (i >= firstDense && (i + 1) % step === 0 && !mlpOnly.includes(i)) sparse += 1;
@@ -116,7 +116,7 @@ export function readConfig(root: Config): Model {
     if (type === 'deepseek_v4') add({ name: 'indexer.wq_b', n: need(c, 'index_n_heads') * need(c, 'index_head_dim'), k: qLora, split: 'replicated', layers: ratios.filter((r) => r === 4).length });
     omitted.push('KV compressors and indexer gates, built without a quant config', 'hyper-connection mixing');
     if (type === 'deepseek_v41_text') omitted.push('engram and candidate indexer');
-  } else if (type === 'qwen3_5_text') {
+  } else if (type === 'qwen3_5_text' || type === 'qwen3_next') {
     // Every full_attention_interval-th layer is full attention; the rest are Gated DeltaNet (qwen_gdn_linear_attn.py).
     const full = Math.floor(layers / need(c, 'full_attention_interval'));
     const keyDim = need(c, 'linear_key_head_dim') * need(c, 'linear_num_key_heads');
@@ -125,8 +125,8 @@ export function readConfig(root: Config): Model {
     add({ name: 'in_proj_ba', n: 2 * need(c, 'linear_num_value_heads'), k: hidden, split: 'column', layers: layers - full });
     add({ name: 'out_proj', n: hidden, k: valueDim, split: 'row', layers: layers - full });
     const headDim = need(c, 'head_dim');
-    // attn_output_gate doubles the query heads in qkv_proj.
-    const q = c.attn_output_gate === true ? 2 * heads : heads;
+    // attn_output_gate doubles the query heads in qkv_proj; Qwen3-Next has it unless the config says otherwise.
+    const q = c.attn_output_gate === true || (type === 'qwen3_next' && c.attn_output_gate !== false) ? 2 * heads : heads;
     add({ name: 'qkv_proj', n: (q + 2 * kvHeads) * headDim, k: hidden, split: 'column', layers: full, heads: { q, kv: kvHeads, dim: headDim } });
     add({ name: 'o_proj', n: hidden, k: heads * headDim, split: 'row', layers: full });
     omitted.push('the DeltaNet convolution, built without a quant config');
@@ -185,18 +185,20 @@ export function readConfig(root: Config): Model {
     const inter = need(c, 'moe_intermediate_size', 'intermediate_size');
     let blocked: string | undefined;
     if (num(c, 'swiglu_limit') !== undefined) blocked = 'swiglu gate parameters';
+    else if (type === 'llama4_text') blocked = 'router weights applied on the input';
     else if (type === 'gpt_oss') blocked = 'expert biases';
     else if (fmt !== 'bf16') blocked = `${fmt.toUpperCase()} experts`;
     else if (c.hidden_act !== undefined && c.hidden_act !== 'silu') blocked = `activation ${String(c.hidden_act)}`;
     experts = { count: expertCount, topK: need(c, 'num_experts_per_tok', 'experts_per_token'), nE: 2 * inter, hidden, intermediate: inter, layers: sparse, ...(blocked ? { blocked } : {}) };
-    const shared = (num(c, 'n_shared_experts') ?? 0) * inter || (num(c, 'shared_expert_intermediate_size') ?? 0);
+    // Llama 4 always has one shared expert the size of a routed one (llama4.py).
+    const shared = (num(c, 'n_shared_experts') ?? (type === 'llama4_text' ? 1 : 0)) * inter || (num(c, 'shared_expert_intermediate_size') ?? 0);
     if (shared > 0) {
       linears.push({ name: 'shared_experts.gate_up_proj', n: 2 * shared, k: hidden, split: 'column', layers: sparse });
       linears.push({ name: 'shared_experts.down_proj', n: hidden, k: shared, split: 'row', layers: sparse });
     }
   }
   if (denseLayers > 0) {
-    const inter = need(c, 'intermediate_size');
+    const inter = need(c, 'intermediate_size_mlp', 'intermediate_size');
     linears.push({ name: 'gate_up_proj', n: 2 * inter, k: hidden, split: 'column', layers: denseLayers });
     linears.push({ name: 'down_proj', n: hidden, k: inter, split: 'row', layers: denseLayers });
   }

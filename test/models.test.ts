@@ -99,3 +99,21 @@ describe('architectures with new attention', () => {
     expect(row('zai-org/GLM-5.3-Flash', 4, 'in_proj_qkvbfg_a', 'b200').localN).toBe((3 * 8192 + 64) / 4 + 256);
   });
 });
+
+describe('more served architectures', () => {
+  it('reads GLM-4.6 with its 96 query heads and BF16 experts that mine', () => {
+    expect(shapes('zai-org/GLM-4.6')).toMatchObject({ qkv_proj: [14336, 5120], o_proj: [5120, 12288] });
+    expect(row('zai-org/GLM-4.6', 8, 'experts.w13 (gate/up)').tile).toBe('4x64');
+  });
+
+  it("gives Llama 4 Maverick dense layers between its MoE ones and blocks its experts for input-side router weights", () => {
+    const m = model('meta-llama/Llama-4-Maverick-17B-128E-Instruct');
+    expect(m.experts!.layers).toBe(24);
+    expect(m.linears.find((l) => l.name === 'gate_up_proj')).toMatchObject({ n: 32768, layers: 24 });
+    expect(row('meta-llama/Llama-4-Maverick-17B-128E-Instruct', 8, 'experts.w13 (gate/up)').why).toBe('router weights applied on the input');
+  });
+
+  it("doubles Qwen3-Next's query heads for its output gate by default", () => {
+    expect(shapes('Qwen/Qwen3-Next-80B-A3B-Instruct')).toMatchObject({ qkv_proj: [(32 + 4) * 256, 2048], in_proj_qkvz: [12288, 2048] });
+  });
+});
