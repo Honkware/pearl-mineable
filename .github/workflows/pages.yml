@@ -3,9 +3,6 @@ name: pages
 on:
   push:
     branches: [main]
-  # Redeploys every 6 hours so the link-preview card shows recent chain data.
-  schedule:
-    - cron: '23 */6 * * *'
   workflow_dispatch:
 
 permissions:
