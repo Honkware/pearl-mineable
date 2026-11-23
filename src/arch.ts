@@ -28,8 +28,23 @@ export interface Experts {
   blocked?: string;
 }
 
+// One layer kind's share of a sequence in vLLM's cache, in BF16.
+export interface Cache {
+  layers: number;
+  // Key and value bytes per token for each KV head, split across GPUs by heads.
+  perHead?: { heads: number; bytes: number };
+  // A latent shared by all heads (MLA), held whole on every GPU.
+  latent?: number;
+  // Tokens kept: a sliding window caps them; a compression ratio divides them.
+  window?: number;
+  ratio?: number;
+  // A fixed recurrent state per sequence (linear attention), split across GPUs by heads.
+  state?: number;
+}
+
 export interface Model {
   type: string;
+  cache: Cache[];
   format: Format;
   hidden: number;
   vocab: number;
@@ -94,6 +109,8 @@ export function readConfig(root: Config): Model {
   const kvHeads = num(c, 'num_key_value_heads') ?? heads;
   const linears: Linear[] = [];
   const omitted: string[] = [];
+  const cache: Cache[] = [];
+  const window = num(c, 'sliding_window') ?? undefined;
 
   if (fmt === 'other') throw new UnsupportedModel('quantized in a format the FP8 miner does not load');
   const types = Array.isArray(c.layer_types) ? (c.layer_types as string[]) : [];
@@ -125,6 +142,8 @@ export function readConfig(root: Config): Model {
       add({ name: 'indexer.compressor', n: 4 * indexDim, k: hidden, split: 'replicated', layers: overlapped, never: raw });
       add({ name: 'indexer.weights_proj', n: indexHeads, k: hidden, split: 'replicated', layers: overlapped, never: raw });
     }
+    // One shared K=V head per token: compressed layers keep ctx / ratio entries plus the sliding window, the rest the window alone.
+    for (const r of new Set(ratios)) cache.push({ layers: ratios.filter((x) => x === r).length, latent: 2 * headDim, ratio: r > 1 ? r : undefined, window });
     omitted.push('hyper-connection mixing');
     if (type === 'deepseek_v41_text') omitted.push('engram and candidate indexer');
   } else if (type === 'qwen3_5_text' || type === 'qwen3_next') {
@@ -140,6 +159,10 @@ export function readConfig(root: Config): Model {
     const q = c.attn_output_gate === true || (type === 'qwen3_next' && c.attn_output_gate !== false) ? 2 * heads : heads;
     add({ name: 'qkv_proj', n: (q + 2 * kvHeads) * headDim, k: hidden, split: 'column', layers: full, heads: { q, kv: kvHeads, dim: headDim } });
     add({ name: 'o_proj', n: hidden, k: heads * headDim, split: 'row', layers: full });
+    // Gated DeltaNet keeps an FP32 state of key x value dims per value head, plus a short convolution window.
+    const vHeads = need(c, 'linear_num_value_heads');
+    cache.push({ layers: layers - full, state: vHeads * need(c, 'linear_key_head_dim') * need(c, 'linear_value_head_dim') * 4 + (2 * keyDim + valueDim) * (num(c, 'linear_conv_kernel_dim') ?? 4) * 2 });
+    cache.push({ layers: full, perHead: { heads: kvHeads, bytes: 2 * headDim * 2 } });
     omitted.push('the DeltaNet convolution, built without a quant config');
   } else if (type === 'glm5_next_text') {
     // glm5next/common/kda.py for linear-attention layers, attention.py's MLA for the rest.
@@ -151,6 +174,7 @@ export function readConfig(root: Config): Model {
     add({ name: 'f_b_proj', n: kdaHeads * kdaDim, k: kdaDim, split: 'column', layers: kda });
     add({ name: 'g_b_proj', n: kdaHeads * kdaDim, k: kdaDim, split: 'column', layers: kda });
     add({ name: 'kda.o_proj', n: hidden, k: kdaHeads * kdaDim, split: 'row', layers: kda });
+    cache.push({ layers: kda, state: kdaHeads * kdaDim * kdaDim * 4 + 3 * kdaHeads * kdaDim * 4 * 2 });
     mla(count('deepseek_sparse_attention'));
     omitted.push('hyper-connection mixing');
   } else if (num(c, 'kv_lora_rank') !== undefined) {
@@ -165,6 +189,7 @@ export function readConfig(root: Config): Model {
     for (const g of groups) {
       linears.push({ name: `qkv_proj${g.tag}`, n: (heads + 2 * g.kv) * g.dim, k: hidden, split: 'column', layers: g.layers, heads: { q: heads, kv: g.kv, dim: g.dim } });
       linears.push({ name: `o_proj${g.tag}`, n: hidden, k: heads * g.dim, split: 'row', layers: g.layers });
+      cache.push({ layers: g.layers, perHead: { heads: g.kv, bytes: 2 * g.dim * 2 }, window: g.tag === ' (sliding)' ? window : undefined });
     }
   }
 
@@ -184,6 +209,7 @@ export function readConfig(root: Config): Model {
     }
     add({ name: 'kv_b_proj', n: heads * (nope + vDim), k: kvLora, split: 'column', layers: n, never: 'read directly by MLA' });
     add({ name: 'o_proj', n: hidden, k: heads * vDim, split: 'row', layers: n });
+    cache.push({ layers: n, latent: (kvLora + rope) * 2 });
     if (num(c, 'index_n_heads') !== undefined) omitted.push('sparse-attention indexer projections');
   }
 
@@ -216,5 +242,5 @@ export function readConfig(root: Config): Model {
   linears.push({ name: 'lm_head', n: vocab, k: hidden, split: 'column', layers: 1, never: 'not a linear layer in vLLM' });
   if ((num(c, 'num_nextn_predict_layers') ?? 0) > 0) omitted.push('multi-token prediction layers');
 
-  return { type, format: fmt, hidden, vocab, tiedEmbeddings: c.tie_word_embeddings === true, linears, experts, omitted };
+  return { type, cache, format: fmt, hidden, vocab, tiedEmbeddings: c.tie_word_embeddings === true, linears, experts, omitted };
 }
