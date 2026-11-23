@@ -1,3 +1,7 @@
+import dsv4 from './configs/deepseek-ai_DeepSeek-V4-Pro-0813.json' with { type: 'json' };
+import dsv41 from './configs/deepseek-ai_DeepSeek-V4.1-Flash.json' with { type: 'json' };
+import glm53flash from './configs/zai-org_GLM-5.3-Flash.json' with { type: 'json' };
+import qwen38 from './configs/Qwen_Qwen3.8-27B.json' with { type: 'json' };
 import glm52 from './configs/zai-org_GLM-5.2.json' with { type: 'json' };
 import glm53 from './configs/zai-org_GLM-5.3.json' with { type: 'json' };
 import llama8b from './configs/pearl-ai_Llama-3.1-8B-Instruct-pearl.json' with { type: 'json' };
@@ -34,6 +38,10 @@ export const KNOWN: Known[] = [
   { id: 'meta-llama/Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B Instruct', org: 'meta-llama', pearl: true, config: original(llama8b), int7: int7('pearl-ai/Llama-3.1-8B-Instruct-pearl', llama8b) },
   { id: 'zai-org/GLM-5.2', name: 'GLM-5.2', org: 'zai-org', pearl: true, config: glm52 },
   { id: 'zai-org/GLM-5.3', name: 'GLM-5.3', org: 'zai-org', pearl: true, config: glm53 },
+  { id: 'zai-org/GLM-5.3-Flash', name: 'GLM-5.3 Flash', org: 'zai-org', pearl: true, config: glm53flash },
+  { id: 'deepseek-ai/DeepSeek-V4-Pro-0813', name: 'DeepSeek V4 Pro', org: 'deepseek-ai', pearl: true, config: dsv4 },
+  { id: 'deepseek-ai/DeepSeek-V4.1-Flash', name: 'DeepSeek V4.1 Flash', org: 'deepseek-ai', pearl: true, config: dsv41 },
+  { id: 'Qwen/Qwen3.8-27B', name: 'Qwen3.8 27B', org: 'Qwen', pearl: true, config: qwen38 },
   { id: 'google/gemma-4-31B-it', name: 'Gemma 4 31B', org: 'google', pearl: true, config: original(gemma31b), int7: int7('pearl-ai/Gemma-4-31B-it-pearl', gemma31b) },
   { id: 'Qwen/Qwen3-30B-A3B-Instruct-2507', name: 'Qwen3 30B A3B', org: 'Qwen', pearl: true, config: original(qwen30b), int7: int7('pearl-ai/Qwen3-30B-A3B-Instruct-2507-pearl', qwen30b) },
   { id: 'Qwen/Qwen3-0.6B', name: 'Qwen3 0.6B', org: 'Qwen', pearl: true, config: qwen06b },
