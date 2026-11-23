@@ -1,0 +1,61 @@
+name: rules
+
+# Regenerates the vectors from Pearl's branches and opens a pull request when
+# Pearl changed a rule, so the site never drifts from Pearl's code unnoticed.
+# generate.py executes functions from Pearl's repository, so that runs in a job
+# whose token can only read.
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - run: git clone --filter=blob:none --no-checkout https://github.com/pearl-research-labs/pearl.git pearl
+      - run: git -C pearl fetch origin master fp8-scheme
+      - run: python3 vectors/generate.py pearl origin/fp8-scheme > vectors/tiles.json
+      - run: python3 vectors/now.py pearl origin/master > vectors/now.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vectors
+          path: vectors/*.json
+
+  propose:
+    needs: generate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: vectors
+          path: vectors
+      - id: diff
+        run: echo "changed=$(git status --porcelain vectors | wc -l)" >> "$GITHUB_OUTPUT"
+      - if: steps.diff.outputs.changed != '0'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      # A pull request opened with this token starts no workflows, so the test result goes in its body.
+      - if: steps.diff.outputs.changed != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          npm ci
+          result=$(npx vitest run 2>&1 | grep -E 'Tests|FAIL|×' | head -20 || true)
+          branch="rules-$(date +%F)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add vectors/tiles.json vectors/now.json
+          git commit -m "Update the rule vectors from Pearl's branches"
+          git push origin "$branch"
+          gh pr create --title "Update the rule vectors from Pearl's branches" --body "$(printf 'Pearl changed a rule on master or fp8-scheme. Tests against the new vectors:\n\n%s\n' "$result")"

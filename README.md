@@ -1,6 +1,8 @@
-# pearl-models
+# pearl-mineable
 
 How much of an AI model's prompt work can mine Pearl today and after the FP8 fork, on which NVIDIA cards, and what it earns per million prompt tokens. It reads a model's `config.json`, so it needs no GPU and no weights, and it runs in the browser with chain data from a public Pearl RPC endpoint through [pearljs](https://github.com/Honkware/pearljs).
+
+The site is at https://honkware.github.io/pearl-mineable/. Search any Hugging Face model by its ID, or pick from the models Pearl publishes, tests its FP8 miner on or serves, and the most used open models.
 
 ## Today
 
@@ -32,10 +34,14 @@ npm run dev
 npm test
 ```
 
-To follow a change on Pearl's branches, regenerate the vectors from a checkout and run the tests:
+The `rules` workflow regenerates the vectors from Pearl's branches every Monday and opens a pull request when a rule changed. To do the same by hand from a checkout:
 
 ```bash
 python3 vectors/generate.py ~/Pearl/pearl origin/fp8-scheme > vectors/tiles.json
 python3 vectors/now.py ~/Pearl/pearl origin/master > vectors/now.json
 npm test
 ```
+
+## Licence
+
+MIT. The model configs in `src/configs` are the `config.json` files their publishers put on Hugging Face; the Llama 4 ones come from unsloth's copies, since Meta's repositories need a login.
