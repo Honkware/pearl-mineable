@@ -7,7 +7,8 @@ import { analyze, autoTp, type Result } from './analyze.js';
 import { readConfig, UnsupportedModel, type Model } from './arch.js';
 import { fetchTip, type Tip } from './chain.js';
 import { GPUS, gpu } from './gpus.js';
-import { KNOWN } from './known.js';
+import { KNOWN, type Known } from './known.js';
+import { analyzeNow } from './now.js';
 
 const state = { gpu: 'h100', tp: 'auto' as 'auto' | number, tip: null as Tip | null, tipError: false };
 const extra = new Map<string, { name: string; config: Record<string, unknown> }>();
@@ -17,10 +18,23 @@ const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', 
 const int = (n: number): string => n.toLocaleString('en-US');
 const pct = (x: number): string => `${x >= 0.995 || x === 0 ? Math.round(x * 100) : (x * 100).toFixed(x < 0.1 ? 1 : 0)}%`;
 const sig = (x: number): string => (x === 0 ? '0' : x >= 1 ? x.toFixed(2) : x.toPrecision(2));
-const prlPerMillion = (r: Result): string => (state.tip ? sig(r.mined * 1e6 * state.tip.prlPerMac) : '-');
+const prlPerMillion = (r: Result | null): string => (state.tip && r ? sig(r.mined * 1e6 * state.tip.prlPerMac) : '-');
+const share = (r: Result | null): string => (r ? bar(r.share) : '-');
 
-function run(m: Model): Result | null {
-  return state.tp === 'auto' ? autoTp(m, gpu(state.gpu)) : analyze(m, gpu(state.gpu), state.tp);
+interface Entry {
+  id: string;
+  name: string;
+  org: string;
+  config: Record<string, unknown>;
+  int7?: Known['int7'];
+}
+
+// Before the fork only Pearl's INT7 checkpoints mine, so earnings follow the
+// era the chain tip is in.
+function views(e: Entry, model: Model, card = gpu(state.gpu)): { fp8: Result | null; now: Result | null; paid: Result | null } {
+  const fp8 = state.tp === 'auto' ? autoTp(model, card) : analyze(model, card, state.tp);
+  const now = fp8 && e.int7 ? analyzeNow(e.int7.quant, fp8) : null;
+  return { fp8, now, paid: state.tip?.fp8 ? fp8 : now };
 }
 
 function seg<T>(options: [T, string][], current: T, attr: string): string {
@@ -41,20 +55,18 @@ function bar(share: number): string {
 }
 
 function listPage(): string {
-  const models = [...KNOWN.map((k) => ({ id: k.id, name: k.name, org: k.org, pearl: k.pearl, config: k.config })), ...[...extra].map(([id, e]) => ({ id, name: e.name, org: id.split('/')[0]!, pearl: false, config: e.config }))];
-  const rows = models.map((m) => {
-    const model = readConfig(m.config);
-    const r = run(model);
-    return { m, model, r };
+  const forked = state.tip?.fp8 === true;
+  const rows = entries().map((e) => {
+    const model = readConfig(e.config);
+    return { e, model, ...views(e, model) };
   });
-  const scored = rows.filter((x) => x.r !== null).sort((a, b) => b.r!.share - a.r!.share);
-  const body = scored
-    .map(({ m, model, r }, i) => {
-      return `<tr><td class="rank">${i + 1}</td>
-        <td><a class="who" href="#/m/${encodeURIComponent(m.id)}">${esc(m.name)}</a><span class="sub">${esc(m.org)}</span></td>
-        <td>${model.experts ? 'MoE' : 'Dense'}</td><td>${model.format.toUpperCase()}</td><td>${r!.tp}${r!.fits ? '' : '+'}</td>
-        <td>${bar(r!.share)}</td><td class="n">${prlPerMillion(r!)}</td></tr>`;
-    })
+  const body = rows
+    .filter((x) => x.fp8 !== null)
+    .sort((a, b) => b.fp8!.share - a.fp8!.share)
+    .map(({ e, model, fp8, now, paid }, i) => `<tr><td class="rank">${i + 1}</td>
+        <td><a class="who" href="#/m/${encodeURIComponent(e.id)}">${esc(e.name)}</a><span class="sub">${esc(e.org)}</span></td>
+        <td>${model.experts ? 'MoE' : 'Dense'}</td><td>${fp8!.tp}${fp8!.fits ? '' : '+'}</td>
+        ${forked ? '' : `<td>${share(now)}</td>`}<td>${share(fp8)}</td><td class="n">${prlPerMillion(paid)}</td></tr>`)
     .join('');
   return `<div class="title"><h1>Models</h1></div>
   <form class="lookup" id="search"><input name="id" placeholder="Hugging Face ID, such as Qwen/Qwen3-8B" autocomplete="off"><button type="submit">Check</button></form>
@@ -62,48 +74,54 @@ function listPage(): string {
   <div class="card">
     <div class="filters">${controls()}</div>
     <div class="scroll"><table>
-      <thead><tr><th></th><th>Model</th><th>Kind</th><th>Weights</th><th>TP</th><th>Mineable</th><th class="n">PRL / 1M tokens</th></tr></thead>
+      <thead><tr><th></th><th>Model</th><th>Kind</th><th>TP</th>${forked ? '<th>Mineable</th>' : '<th>Mineable now</th><th>After FP8</th>'}<th class="n">PRL / 1M tokens</th></tr></thead>
       <tbody>${body}</tbody>
     </table></div>
   </div>`;
 }
 
+function entries(): Entry[] {
+  return [...KNOWN, ...[...extra].map(([id, e]) => ({ id, name: e.name, org: id.split('/')[0]!, config: e.config }))];
+}
+
 function modelPage(id: string): string {
-  const known = KNOWN.find((k) => k.id === id);
-  const entry = known ?? (extra.has(id) ? { id, name: extra.get(id)!.name, org: id.split('/')[0]!, pearl: false, config: extra.get(id)!.config } : null);
+  const entry = entries().find((e) => e.id === id);
   if (!entry) return `<div class="card empty">Not loaded. <a class="more inline" href="#/">Back</a></div>`;
+  const forked = state.tip?.fp8 === true;
   const model = readConfig(entry.config);
-  const r = run(model);
+  const { fp8: r, now, paid } = views(entry, model);
   if (!r) return `<div class="title"><h1>${esc(entry.name)}</h1></div><div class="filters">${controls()}</div><div class="card empty">Cannot split ${state.tp} ways</div>`;
   const byGpu = GPUS.map((g) => {
-    const x = state.tp === 'auto' ? autoTp(model, g) : analyze(model, g, state.tp);
-    return `<tr><td class="who">${esc(g.name)}</td><td>${g.memory} GB</td><td>${x ? `${x.tp}${x.fits ? '' : '+'}` : '-'}</td>
-      <td>${x ? bar(x.share) : '-'}</td><td class="n">${x ? prlPerMillion(x) : '-'}</td></tr>`;
+    const v = views(entry, model, g);
+    return `<tr><td class="who">${esc(g.name)}</td><td>${g.memory} GB</td><td>${v.fp8 ? `${v.fp8.tp}${v.fp8.fits ? '' : '+'}` : '-'}</td>
+      ${forked ? '' : `<td>${share(v.now)}</td>`}<td>${share(v.fp8)}</td><td class="n">${prlPerMillion(v.paid)}</td></tr>`;
   }).join('');
   const rows = r.rows
-    .map((x) => `<tr><td class="mono">${esc(x.name)}</td><td class="n">${int(x.n)}</td><td class="n">${int(x.k)}</td>
-      <td class="n">${int(x.localN)} × ${int(x.localK)}</td><td class="n">${x.layers}</td><td>${x.tile ?? '-'}</td>
+    .map((x, i) => `<tr><td class="mono">${esc(x.name)}</td><td class="n">${int(x.n)}</td><td class="n">${int(x.k)}</td>
+      <td class="n">${int(x.localN)} × ${int(x.localK)}</td><td class="n">${x.layers}</td>
+      ${forked ? '' : `<td class="n">${now ? now.rows[i]!.minedLayers || '-' : '-'}</td>`}<td>${x.tile ?? '-'}</td>
       <td class="n">${pct(x.work / r.work)}</td></tr>`)
     .join('');
+  const gpuHead = forked ? '<th>Mineable</th>' : '<th>Mineable now</th><th>After FP8</th>';
   return `<div class="title"><h1>${esc(entry.name)}</h1><span class="chip mono">${esc(id)}</span></div>
   <div class="filters">${controls()}</div>
   ${stats([
-    ['Mineable', pct(r.share)],
-    ['PRL / 1M tokens', prlPerMillion(r)],
+    ...(forked ? [['Mineable', pct(r.share)] as [string, string]] : [['Mineable now', now ? pct(now.share) : '-'], ['After FP8', pct(r.share)]] as [string, string][]),
+    ['PRL / 1M tokens', prlPerMillion(paid)],
     ['TP', `${r.tp}${r.fits ? '' : '+'}`],
     ['GB per GPU', String(Math.round(r.bytesPerGpu / 1e9))],
   ])}
   <div class="card">
     <div class="head"><h2>By GPU</h2></div>
     <div class="scroll"><table>
-      <thead><tr><th>GPU</th><th>Memory</th><th>TP</th><th>Mineable</th><th class="n">PRL / 1M tokens</th></tr></thead>
+      <thead><tr><th>GPU</th><th>Memory</th><th>TP</th>${gpuHead}<th class="n">PRL / 1M tokens</th></tr></thead>
       <tbody>${byGpu}</tbody>
     </table></div>
   </div>
   <div class="card">
     <div class="head"><h2>Layers</h2></div>
     <div class="scroll"><table>
-      <thead><tr><th>Linear</th><th class="n">n</th><th class="n">k</th><th class="n">Per GPU</th><th class="n">Layers</th><th>Tile</th><th class="n">Work</th></tr></thead>
+      <thead><tr><th>Linear</th><th class="n">n</th><th class="n">k</th><th class="n">Per GPU</th><th class="n">Layers</th>${forked ? '' : '<th class="n">Mined now</th>'}<th>FP8 tile</th><th class="n">Work</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
   </div>`;
@@ -117,7 +135,7 @@ async function lookUp(id: string): Promise<void> {
   };
   id = id.trim().replace(/^https:\/\/huggingface\.co\//, '').replace(/\/+$/, '');
   if (!/^[\w.-]+\/[\w.-]+$/.test(id)) return show('Use owner/model');
-  if (KNOWN.some((k) => k.id === id) || extra.has(id)) {
+  if (entries().some((e) => e.id === id)) {
     location.hash = `#/m/${encodeURIComponent(id)}`;
     return;
   }
