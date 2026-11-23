@@ -1,3 +1,8 @@
+import glm46 from './configs/zai-org_GLM-4.6.json' with { type: 'json' };
+import kimiK2 from './configs/moonshotai_Kimi-K2-Instruct.json' with { type: 'json' };
+import llama4Scout from './configs/meta-llama_Llama-4-Scout-17B-16E-Instruct.json' with { type: 'json' };
+import llama4Maverick from './configs/meta-llama_Llama-4-Maverick-17B-128E-Instruct.json' with { type: 'json' };
+import qwen3Next from './configs/Qwen_Qwen3-Next-80B-A3B-Instruct.json' with { type: 'json' };
 import dsv4 from './configs/deepseek-ai_DeepSeek-V4-Pro-0813.json' with { type: 'json' };
 import dsv41 from './configs/deepseek-ai_DeepSeek-V4.1-Flash.json' with { type: 'json' };
 import glm53flash from './configs/zai-org_GLM-5.3-Flash.json' with { type: 'json' };
@@ -49,4 +54,9 @@ export const KNOWN: Known[] = [
   { id: 'mistralai/Mistral-Small-3.2-24B-Instruct-2506', name: 'Mistral Small 3.2 24B', org: 'mistralai', pearl: false, config: mistral },
   { id: 'deepseek-ai/DeepSeek-V3', name: 'DeepSeek V3', org: 'deepseek-ai', pearl: false, config: deepseekV3 },
   { id: 'openai/gpt-oss-120b', name: 'gpt-oss 120B', org: 'openai', pearl: false, config: gptOss },
+  { id: 'zai-org/GLM-4.6', name: 'GLM-4.6', org: 'zai-org', pearl: false, config: glm46 },
+  { id: 'moonshotai/Kimi-K2-Instruct', name: 'Kimi K2', org: 'moonshotai', pearl: false, config: kimiK2 },
+  { id: 'meta-llama/Llama-4-Scout-17B-16E-Instruct', name: 'Llama 4 Scout', org: 'meta-llama', pearl: false, config: llama4Scout },
+  { id: 'meta-llama/Llama-4-Maverick-17B-128E-Instruct', name: 'Llama 4 Maverick', org: 'meta-llama', pearl: false, config: llama4Maverick },
+  { id: 'Qwen/Qwen3-Next-80B-A3B-Instruct', name: 'Qwen3-Next 80B A3B', org: 'Qwen', pearl: false, config: qwen3Next },
 ];
