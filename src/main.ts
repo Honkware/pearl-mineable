@@ -148,7 +148,6 @@ function render(): void {
     ['Block height', t ? int(t.height) : '-'],
     ['Difficulty', t ? `${(t.difficulty / 1e6).toFixed(2)} M` : '-'],
     ['Block reward', t ? `${t.subsidy.toFixed(2)} PRL` : '-'],
-    ['FP8 fork on mainnet', 'Not scheduled'],
   ].map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
   document.getElementById('foot')!.innerHTML = 'pearljs';
 }
