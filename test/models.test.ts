@@ -64,3 +64,13 @@ describe('what mines', () => {
     expect(row('Qwen/Qwen3-0.6B', 4, 'down_proj').tile).toBeNull();
   });
 });
+
+describe('architectures', () => {
+  it('refuses a model with linear attention instead of reading it as a plain transformer', () => {
+    expect(() => readConfig({ model_type: 'qwen3_5_text', hidden_size: 5120, num_hidden_layers: 64, vocab_size: 248320, num_attention_heads: 24, intermediate_size: 17408 })).toThrow(UnsupportedModel);
+  });
+
+  it("reads GLM-5.3 as GLM-5.2's architecture with FP8 experts", () => {
+    expect(row('zai-org/GLM-5.3', 8, 'experts.w13 (gate/up)', 'b200').why).toBe('FP8 experts');
+  });
+});

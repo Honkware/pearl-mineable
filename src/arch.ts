@@ -41,6 +41,10 @@ type Config = Record<string, unknown>;
 
 export class UnsupportedModel extends Error {}
 
+// Architectures whose layers this reader builds as vLLM does. Newer ones with
+// linear or compressed attention have other linears and must not be guessed.
+const SUPPORTED = new Set(['llama', 'mistral', 'qwen2', 'qwen3', 'qwen2_moe', 'qwen3_moe', 'mixtral', 'gemma', 'gemma2', 'gemma3_text', 'gemma4_text', 'deepseek_v2', 'deepseek_v3', 'kimi_k2', 'glm_moe_dsa', 'gpt_oss']);
+
 const num = (c: Config, ...keys: string[]): number | undefined => {
   for (const key of keys) if (typeof c[key] === 'number') return c[key] as number;
   return undefined;
@@ -79,6 +83,7 @@ function moeLayers(c: Config, total: number): number {
 export function readConfig(root: Config): Model {
   const c = (root.text_config ?? root) as Config;
   const type = String(c.model_type ?? root.model_type ?? '');
+  if (!SUPPORTED.has(type)) throw new UnsupportedModel(`${type || 'this'} architecture is not supported yet`);
   const fmt = format(root, c);
   const hidden = need(c, 'hidden_size');
   const layers = need(c, 'num_hidden_layers');
