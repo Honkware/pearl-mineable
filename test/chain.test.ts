@@ -14,3 +14,11 @@ describe('earnings per mined MAC', () => {
     expect(tipFrom(145000, 0x1c2b3f42).subsidy).toBeLessThan(2300);
   });
 });
+
+describe('fees', () => {
+  it('adds the average block fee to what a mined MAC earns', () => {
+    const plain = tipFrom(147112, 0x1c2b3f42);
+    const withFees = tipFrom(147112, 0x1c2b3f42, false, plain.subsidy);
+    expect(withFees.prlPerMac / plain.prlPerMac).toBeCloseTo(2, 10);
+  });
+});
