@@ -19,6 +19,8 @@ const int = (n: number): string => n.toLocaleString('en-US');
 const pct = (x: number): string => `${x >= 0.995 || x === 0 ? Math.round(x * 100) : (x * 100).toFixed(x < 0.1 ? 1 : 0)}%`;
 const sig = (x: number): string => (x === 0 ? '0' : x >= 1 ? x.toFixed(2) : x.toPrecision(2));
 const prlPerMillion = (r: Result | null): string => (state.tip && r ? sig(r.mined * 1e6 * state.tip.prlPerMac) : '-');
+const TIPS: Record<string, string> = {"Mineable now": "Share of the model's prompt math that mines on mainnet today", "After FP8": "Share of the model's prompt math that mines after the FP8 fork", "Mineable": "Share of the model's prompt math that mines", "PRL / 1M tokens": "PRL earned per million prompt tokens at the current difficulty", "TP": "GPUs the model is split across"};
+const th = (label: string, cls = ''): string => `<th${cls ? ` class="${cls}"` : ''}${TIPS[label] ? ` title="${esc(TIPS[label]!)}"` : ''}>${label}</th>`;
 const share = (r: Result | null): string => (r ? bar(r.share) : '-');
 
 interface Entry {
@@ -47,7 +49,7 @@ function controls(): string {
 }
 
 function stats(items: [string, string][]): string {
-  return `<div class="stats">${items.map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('')}</div>`;
+  return `<div class="stats">${items.map(([k, v]) => `<div class="stat"><div class="k"${TIPS[k] ? ` title="${esc(TIPS[k]!)}"` : ''}>${k}</div><div class="v">${v}</div></div>`).join('')}</div>`;
 }
 
 function bar(share: number): string {
@@ -74,7 +76,7 @@ function listPage(): string {
   <div class="card">
     <div class="filters">${controls()}</div>
     <div class="scroll"><table>
-      <thead><tr><th></th><th>Model</th><th>Kind</th><th>TP</th>${forked ? '<th>Mineable</th>' : '<th>Mineable now</th><th>After FP8</th>'}<th class="n">PRL / 1M tokens</th></tr></thead>
+      <thead><tr><th></th><th>Model</th><th>Kind</th>${th('TP')}${forked ? th('Mineable') : th('Mineable now') + th('After FP8')}${th('PRL / 1M tokens', 'n')}</tr></thead>
       <tbody>${body}</tbody>
     </table></div>
   </div>`;
@@ -102,7 +104,7 @@ function modelPage(id: string): string {
       ${forked ? '' : `<td class="n">${now ? now.rows[i]!.minedLayers || '-' : '-'}</td>`}<td>${x.tile ?? '-'}</td>
       <td class="n">${pct(x.work / r.work)}</td></tr>`)
     .join('');
-  const gpuHead = forked ? '<th>Mineable</th>' : '<th>Mineable now</th><th>After FP8</th>';
+  const gpuHead = forked ? th('Mineable') : th('Mineable now') + th('After FP8');
   return `<div class="title"><h1>${esc(entry.name)}</h1><span class="chip mono">${esc(id)}</span></div>
   <div class="filters">${controls()}</div>
   ${stats([
@@ -114,7 +116,7 @@ function modelPage(id: string): string {
   <div class="card">
     <div class="head"><h2>By GPU</h2></div>
     <div class="scroll"><table>
-      <thead><tr><th>GPU</th><th>Memory</th><th>TP</th>${gpuHead}<th class="n">PRL / 1M tokens</th></tr></thead>
+      <thead><tr><th>GPU</th><th>Memory</th>${th('TP')}${gpuHead}${th('PRL / 1M tokens', 'n')}</tr></thead>
       <tbody>${byGpu}</tbody>
     </table></div>
   </div>

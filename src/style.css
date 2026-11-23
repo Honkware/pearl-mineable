@@ -217,3 +217,4 @@ main.wrap { padding-top: 24px; padding-bottom: 40px; }
 .lookup input { flex: 1; font: inherit; font-size: 15px; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 11px 14px; min-width: 0; }
 .lookup input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .lookup button { font: inherit; font-weight: 600; color: var(--bg); background: var(--ink); border: 0; border-radius: 10px; padding: 0 22px; cursor: pointer; }
+th[title], .stat .k[title] { text-decoration: underline dotted var(--faint); text-underline-offset: 3px; cursor: help; }
