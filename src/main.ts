@@ -10,7 +10,7 @@ import { GPUS, gpu } from './gpus.js';
 import { KNOWN, type Known } from './known.js';
 import { analyzeNow } from './now.js';
 
-const state = { gpu: 'h100', tp: 'auto' as 'auto' | number, tip: null as Tip | null, tipError: false };
+const state = { gpu: 'h100', tp: 'auto' as 'auto' | number, tip: null as Tip | null, tipError: false, sort: 'fp8', desc: true };
 const extra = new Map<string, { name: string; config: Record<string, unknown> }>();
 const app = document.getElementById('app')!;
 
@@ -20,7 +20,10 @@ const pct = (x: number): string => `${x >= 0.995 || x === 0 ? Math.round(x * 100
 const sig = (x: number): string => (x === 0 ? '0' : x >= 1 ? x.toFixed(2) : x.toPrecision(2));
 const prlPerMillion = (r: Result | null): string => (state.tip && r ? sig(r.mined * 1e6 * state.tip.prlPerMac) : '-');
 const TIPS: Record<string, string> = {"Mineable now": "Share of the model's prompt math that mines on mainnet today", "After FP8": "Share of the model's prompt math that mines after the FP8 fork", "Mineable": "Share of the model's prompt math that mines", "PRL / 1M tokens": "PRL earned per million prompt tokens at the current difficulty", "TP": "GPUs the model is split across"};
-const th = (label: string, cls = ''): string => `<th${cls ? ` class="${cls}"` : ''}${TIPS[label] ? ` title="${esc(TIPS[label]!)}"` : ''}>${label}</th>`;
+const th = (label: string, cls = '', key = ''): string => {
+  const arrow = key && state.sort === key ? (state.desc ? ' ↓' : ' ↑') : '';
+  return `<th${cls ? ` class="${cls}"` : ''}${key ? ` data-sort="${key}"` : ''}${TIPS[label] ? ` title="${esc(TIPS[label]!)}"` : ''}>${label}${arrow}</th>`;
+};
 const share = (r: Result | null): string => (r ? bar(r.share) : '-');
 
 interface Entry {
@@ -62,9 +65,26 @@ function listPage(): string {
     const model = readConfig(e.config);
     return { e, model, ...views(e, model) };
   });
+  type Row = (typeof rows)[number];
+  const keys: Record<string, (x: Row) => number | string | null> = {
+    name: (x) => x.e.name.toLowerCase(),
+    kind: (x) => (x.model.experts ? 'MoE' : 'Dense'),
+    tp: (x) => x.fp8!.tp,
+    now: (x) => x.now?.share ?? null,
+    fp8: (x) => x.fp8!.share,
+    prl: (x) => (x.paid ? x.paid.mined : null),
+  };
+  const key = keys[state.sort] ?? keys.fp8!;
+  // Models without a value stay at the bottom in either direction.
+  const order = (a: Row, b: Row): number => {
+    const [x, y] = [key(a), key(b)];
+    if (x === null || y === null) return x === y ? 0 : x === null ? 1 : -1;
+    const c = x < y ? -1 : x > y ? 1 : 0;
+    return state.desc ? -c : c;
+  };
   const body = rows
     .filter((x) => x.fp8 !== null)
-    .sort((a, b) => b.fp8!.share - a.fp8!.share)
+    .sort(order)
     .map(({ e, model, fp8, now, paid }, i) => `<tr><td class="rank">${i + 1}</td>
         <td><a class="who" href="#/m/${encodeURIComponent(e.id)}">${esc(e.name)}</a><span class="sub">${esc(e.org)}</span></td>
         <td>${model.experts ? 'MoE' : 'Dense'}</td><td>${fp8!.tp}${fp8!.fits ? '' : '+'}</td>
@@ -76,7 +96,7 @@ function listPage(): string {
   <div class="card">
     <div class="filters">${controls()}</div>
     <div class="scroll"><table>
-      <thead><tr><th></th><th>Model</th><th>Kind</th>${th('TP')}${forked ? th('Mineable') : th('Mineable now') + th('After FP8')}${th('PRL / 1M tokens', 'n')}</tr></thead>
+      <thead><tr><th></th>${th('Model', '', 'name')}${th('Kind', '', 'kind')}${th('TP', '', 'tp')}${forked ? th('Mineable', '', 'fp8') : th('Mineable now', '', 'now') + th('After FP8', '', 'fp8')}${th('PRL / 1M tokens', 'n', 'prl')}</tr></thead>
       <tbody>${body}</tbody>
     </table></div>
   </div>`;
@@ -173,6 +193,14 @@ function render(): void {
 }
 
 app.addEventListener('click', (e) => {
+  const head = (e.target as HTMLElement).closest<HTMLElement>('th[data-sort]');
+  if (head) {
+    const key = head.dataset.sort!;
+    state.desc = state.sort === key ? !state.desc : key !== 'name' && key !== 'kind';
+    state.sort = key;
+    render();
+    return;
+  }
   const b = (e.target as HTMLElement).closest('button');
   if (!b) return;
   if (b.dataset.gpu) state.gpu = b.dataset.gpu;
