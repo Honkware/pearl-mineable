@@ -205,3 +205,5 @@ td .sub.warn { color: var(--warn); }
 .seg button { font: inherit; border: 0; background: none; color: var(--soft); padding: 3px 11px; border-radius: 6px; font-size: 13px; cursor: pointer; }
 .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); font-weight: 600; box-shadow: 0 0 0 1px var(--line); }
 .err { color: var(--bad); padding: 6px 0; }
+/* .wrap zeroes vertical padding and outranks the main rule above. */
+main.wrap { padding-top: 24px; padding-bottom: 40px; }
