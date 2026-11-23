@@ -48,7 +48,8 @@ function seg<T>(options: [T, string][], current: T, attr: string): string {
 
 function controls(): string {
   return `${seg(GPUS.map((g) => [g.id, g.name] as [string, string]), state.gpu, 'gpu')}
-    ${seg([['auto', 'Auto TP'], [1, '1'], [2, '2'], [4, '4'], [8, '8']] as [string | number, string][], state.tp, 'tp')}`;
+    ${seg([['auto', 'Auto TP'], [1, '1'], [2, '2'], [4, '4'], [8, '8']] as [string | number, string][], state.tp, 'tp')}
+    <input class="gpus" type="number" min="1" max="64" placeholder="GPUs" value="${typeof state.tp === 'number' && ![1, 2, 4, 8].includes(state.tp) ? state.tp : ''}">`;
 }
 
 function stats(items: [string, string][]): string {
@@ -69,9 +70,9 @@ function listPage(): string {
   const keys: Record<string, (x: Row) => number | string | null> = {
     name: (x) => x.e.name.toLowerCase(),
     kind: (x) => (x.model.experts ? 'MoE' : 'Dense'),
-    tp: (x) => x.fp8!.tp,
+    tp: (x) => x.fp8?.tp ?? null,
     now: (x) => x.now?.share ?? null,
-    fp8: (x) => x.fp8!.share,
+    fp8: (x) => x.fp8?.share ?? null,
     prl: (x) => (x.paid ? x.paid.mined : null),
   };
   const key = keys[state.sort] ?? keys.fp8!;
@@ -83,11 +84,10 @@ function listPage(): string {
     return state.desc ? -c : c;
   };
   const body = rows
-    .filter((x) => x.fp8 !== null)
     .sort(order)
     .map(({ e, model, fp8, now, paid }, i) => `<tr><td class="rank">${i + 1}</td>
         <td><a class="who" href="#/m/${encodeURIComponent(e.id)}">${esc(e.name)}</a><span class="sub">${esc(e.org)}</span></td>
-        <td>${model.experts ? 'MoE' : 'Dense'}</td><td>${fp8!.tp}${fp8!.fits ? '' : '+'}</td>
+        <td>${model.experts ? 'MoE' : 'Dense'}</td><td>${fp8 ? `${fp8.tp}${fp8.fits ? '' : '+'}` : '-'}</td>
         ${forked ? '' : `<td>${share(now)}</td>`}<td>${share(fp8)}</td><td class="n">${prlPerMillion(paid)}</td></tr>`)
     .join('');
   return `<div class="title"><h1>Models</h1></div>
@@ -205,6 +205,13 @@ app.addEventListener('click', (e) => {
   if (!b) return;
   if (b.dataset.gpu) state.gpu = b.dataset.gpu;
   if (b.dataset.tp) state.tp = b.dataset.tp === 'auto' ? 'auto' : Number(b.dataset.tp);
+  render();
+});
+app.addEventListener('change', (e) => {
+  const input = e.target as HTMLInputElement;
+  if (!input.classList.contains('gpus')) return;
+  const n = Math.round(Number(input.value));
+  state.tp = Number.isFinite(n) && n >= 1 && n <= 64 ? n : 'auto';
   render();
 });
 app.addEventListener('submit', (e) => {

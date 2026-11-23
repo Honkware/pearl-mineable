@@ -220,3 +220,5 @@ main.wrap { padding-top: 24px; padding-bottom: 40px; }
 th[title], .stat .k[title] { text-decoration: underline dotted var(--faint); text-underline-offset: 3px; cursor: help; }
 th[data-sort] { cursor: pointer; user-select: none; }
 th[data-sort]:hover { color: var(--ink); }
+.gpus { font: inherit; font-size: 13px; color: var(--ink); background: var(--raise); border: 1px solid var(--line); border-radius: 8px; padding: 3px 8px; width: 72px; }
+.gpus:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
