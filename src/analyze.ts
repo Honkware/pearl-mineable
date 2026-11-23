@@ -1,6 +1,6 @@
 // Work is counted over every rank: each rank mines its own shard and is
 // credited m*n*k for it (mining_config.py effective_work_per_matmul).
-import type { Format, Linear, Model } from './arch.js';
+import type { Cache, Format, Linear, Model } from './arch.js';
 import type { Gpu } from './gpus.js';
 import { denseTile, expertTile, type Tile } from './rules.js';
 
@@ -28,6 +28,8 @@ export interface Result {
   mined: number;
   share: number;
   bytesPerGpu: number;
+  // Its parts: weights and the miner's planes, the miner's runtime reservation, one sequence of cache.
+  parts: { weights: number; reserve: number; cache: number };
   fits: boolean;
 }
 
@@ -38,8 +40,11 @@ const BYTES: Record<Format, number> = { bf16: 2, fp8: 1.03, nvfp4: 0.56, mxfp4: 
 // FP8 fallback copy 1 (experts have none).
 const MINED_EXPERT = 1 + 0.25 + 1 + 0.06;
 const MINED_DENSE = MINED_EXPERT + 1;
-// Room left for activations and the KV cache.
-const HEADROOM = 0.75;
+// Pearl's example command: vllm serve ... --max-model-len 8192 --gpu-memory-utilization 0.9 --enforce-eager.
+export const CONTEXT = 8192;
+const UTILIZATION = 0.9;
+// vLLM's activation peak while profiling, which this does not model; eager mode keeps no CUDA graphs.
+const OVERHEAD = 2e9;
 
 export function shard(l: Linear, tp: number): { n: number; k: number } | null {
   if (l.split === 'replicated' || tp === 1) return { n: l.n, k: l.k };
@@ -85,8 +90,9 @@ export function analyze(m: Model, gpu: Gpu, tp: number, pp = 1): Result | null {
       bytes += shardWeights * (r.tile ? MINED_DENSE : r.name === 'lm_head' ? 2 : BYTES[m.format]);
     }
   }
-  const bytesPerGpu = bytes / pp;
-  return { tp, pp, rows, work, mined, share: work > 0 ? mined / work : 0, bytesPerGpu, fits: bytesPerGpu <= gpu.memory * 1e9 * HEADROOM };
+  const parts = { weights: bytes / pp, reserve: minerReserve(rows, e), cache: cacheBytes(m.cache, tp) / pp };
+  const bytesPerGpu = parts.weights + parts.reserve + parts.cache + OVERHEAD;
+  return { tp, pp, rows, work, mined, share: work > 0 ? mined / work : 0, bytesPerGpu, parts, fits: bytesPerGpu <= gpu.memory * 1e9 * UTILIZATION };
 }
 
 const MAX_TP = 8; // one node; vLLM splits further by pipeline stages
@@ -108,4 +114,50 @@ export function onGpus(m: Model, gpu: Gpu, gpus: number): Result | null {
     if (r) return r;
   }
   return null;
+}
+
+/** One CONTEXT-token sequence in vLLM's cache on one GPU, which vLLM needs before it starts. */
+export function cacheBytes(cache: Cache[], tp: number): number {
+  let total = 0;
+  for (const c of cache) {
+    const windowed = c.window ? Math.min(CONTEXT, c.window) : CONTEXT;
+    const tokens = c.ratio ? CONTEXT / c.ratio + (c.window ? windowed : 0) : windowed;
+    if (c.perHead) total += c.layers * tokens * c.perHead.bytes * Math.max(1, c.perHead.heads / tp);
+    if (c.latent) total += c.layers * tokens * c.latent;
+    if (c.state) total += (c.layers * c.state) / tp;
+  }
+  return total;
+}
+
+// memory.py estimate_peak_mining_bytes with the default settings: m buckets up to
+// 8192, 8 launches in flight, a hit signal for the largest legal k (58,368).
+const MAX_M = 8192;
+const SLOTS = 8;
+const SIGNAL_K = 58368;
+const RANK = 32;
+const MIB256 = 256 * 1024 * 1024;
+
+function minerReserve(rows: Row[], e: Model['experts']): number {
+  const mined = rows.filter((r) => r.tile);
+  if (mined.length === 0) return 0;
+  const signal = 2 * (MAX_M * SIGNAL_K + 2 * MAX_M * (SIGNAL_K / 8));
+  const launch = (m: number, n: number, k: number, outRows: number): number =>
+    m * (2 * k + k + k / 4 + (1.25 * k) / 32 + k / 64 + 4 + RANK + k + 4 * RANK) + 2 * outRows * n;
+  let maxLaunch = 0;
+  let tail = 0;
+  let reload = 0;
+  for (const r of mined) {
+    if (r.name.startsWith('experts.') && e) {
+      const cum = MAX_M * e.topK;
+      const gathered = cum * (r.localK + 4 * RANK + 26 + 4.2);
+      maxLaunch = Math.max(maxLaunch, gathered + launch(MAX_M, r.localN, r.localK, cum));
+      tail = Math.max(tail, 2 * cum * (r.localN / 2) + 6 * cum * r.localK + 6 * cum + 2 * MAX_M * r.localK);
+      reload = Math.max(reload, 16 * e.count * r.localN * r.localK);
+    } else {
+      maxLaunch = Math.max(maxLaunch, launch(MAX_M, r.localN, r.localK, MAX_M));
+      reload = Math.max(reload, 16 * r.localN * r.localK);
+    }
+  }
+  const raw = signal + SLOTS * maxLaunch + tail + reload;
+  return Math.ceil((Math.ceil(raw * 1.1) + MIB256) / MIB256) * MIB256;
 }

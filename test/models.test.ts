@@ -139,8 +139,8 @@ describe('memory', () => {
   it("counts the miner's planes, about 3.3 bytes per mined dense weight against BF16's 2", () => {
     const r = analyze(model('meta-llama/Llama-3.1-8B-Instruct'), gpu('h100'), 1)!;
     const mined = r.rows.filter((x) => x.tile).reduce((s, x) => s + x.localN * x.localK * x.layers, 0);
-    expect(r.bytesPerGpu).toBeGreaterThan(mined * 3.3);
-    expect(r.bytesPerGpu).toBeLessThan(mined * 3.4 + 128256 * 4096 * 4);
+    expect(r.parts.weights).toBeGreaterThan(mined * 3.3);
+    expect(r.parts.weights).toBeLessThan(mined * 3.4 + 128256 * 4096 * 4);
   });
 
   it('keeps layers that do not mine in the checkpoint format', () => {
@@ -148,5 +148,25 @@ describe('memory', () => {
     const experts = r.rows.find((x) => x.name === 'experts.w13 (gate/up)')!;
     expect(experts.tile).toBeNull();
     expect(r.bytesPerGpu).toBeLessThan(60e9);
+  });
+});
+
+describe('cache', () => {
+  it('holds one 8,192-token sequence of Llama 3.1 8B: 32 layers of 8 KV heads at 128 dims, keys and values in BF16', () => {
+    const r = analyze(model('meta-llama/Llama-3.1-8B-Instruct'), gpu('h100'), 1)!;
+    expect(r.parts.cache).toBe(32 * 8192 * 8 * 2 * 128 * 2);
+  });
+
+  it("keeps DeepSeek V3's MLA latent whole on every GPU", () => {
+    const one = analyze(model('deepseek-ai/DeepSeek-V3'), gpu('b200'), 1)!;
+    const eight = analyze(model('deepseek-ai/DeepSeek-V3'), gpu('b200'), 8)!;
+    expect(eight.parts.cache).toBe(one.parts.cache);
+    expect(one.parts.cache).toBe(61 * 8192 * (512 + 64) * 2);
+  });
+
+  it("reserves the miner's runtime memory in 256 MiB steps when a layer mines", () => {
+    const reserve = analyze(model('meta-llama/Llama-3.1-8B-Instruct'), gpu('h100'), 1)!.parts.reserve;
+    expect(reserve).toBeGreaterThan(0);
+    expect(reserve % (256 * 1024 * 1024)).toBe(0);
   });
 });
