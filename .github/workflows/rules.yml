@@ -37,8 +37,16 @@ jobs:
         with:
           name: vectors
           path: vectors
+      # The vectors name Pearl's commit, which moves with every unrelated commit, so only the rules are compared.
       - id: diff
-        run: echo "changed=$(git status --porcelain vectors | wc -l)" >> "$GITHUB_OUTPUT"
+        run: |
+          changed=$(python3 -c "
+          import json, subprocess
+          def rules(text): return {k: v for k, v in json.loads(text).items() if k != 'source'}
+          old = lambda f: subprocess.run(['git', 'show', f'HEAD:{f}'], capture_output=True, text=True, check=True).stdout
+          print(sum(rules(old(f)) != rules(open(f).read()) for f in ('vectors/tiles.json', 'vectors/now.json')))
+          ")
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
       - if: steps.diff.outputs.changed != '0'
         uses: actions/setup-node@v4
         with:
