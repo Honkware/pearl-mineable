@@ -8,9 +8,7 @@ import { readConfig, UnsupportedModel, type Model } from './arch.js';
 import { fetchTip, type Tip } from './chain.js';
 import { GPUS, gpu } from './gpus.js';
 import { KNOWN } from './known.js';
-import vectors from '../vectors/tiles.json' with { type: 'json' };
 
-const RULES = vectors.source.split(' ')[1]!.slice(0, 7);
 const state = { gpu: 'h100', tp: 'auto' as 'auto' | number, tip: null as Tip | null, tipError: false };
 const extra = new Map<string, { name: string; config: Record<string, unknown> }>();
 const app = document.getElementById('app')!;
@@ -58,13 +56,7 @@ function listPage(): string {
         <td>${bar(r!.share)}</td><td class="n">${prlPerMillion(r!)}</td></tr>`;
     })
     .join('');
-  const tip = state.tip;
-  return `${stats([
-    ['PRL per 10<sup>18</sup> mined MAC', tip ? sig(tip.prlPerMac * 1e18) : '-'],
-    ['Block subsidy', tip ? `${sig(tip.subsidy)} PRL` : '-'],
-    ['Rules', RULES],
-  ])}
-  <div class="card">
+  return `<div class="card">
     <div class="filters">${controls()}<form class="search" id="search"><input name="id" placeholder="Hugging Face ID" autocomplete="off"></form></div>
     <div id="search-error" class="err" hidden></div>
     <div class="scroll"><table>
