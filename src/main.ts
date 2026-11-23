@@ -19,7 +19,7 @@ const int = (n: number): string => n.toLocaleString('en-US');
 const pct = (x: number): string => `${x >= 0.995 || x === 0 ? Math.round(x * 100) : (x * 100).toFixed(x < 0.1 ? 1 : 0)}%`;
 const sig = (x: number): string => (x === 0 ? '0' : x >= 1 ? x.toFixed(2) : x.toPrecision(2));
 const prlPerMillion = (r: Result | null): string => (state.tip && r ? sig(r.mined * 1e6 * state.tip.prlPerMac) : '-');
-const TIPS: Record<string, string> = {"Mineable now": "Share of the model's prompt math that mines on mainnet today", "After FP8": "Share of the model's prompt math that mines after the FP8 fork", "Mineable": "Share of the model's prompt math that mines", "PRL / 1M tokens": "PRL earned per million prompt tokens at the current difficulty", "TP": "GPUs the model is split across"};
+const TIPS: Record<string, string> = {"Mineable now": "Share of the model's prompt math that mines on mainnet today", "After FP8": "Share of the model's prompt math that mines after the FP8 fork", "Mineable": "Share of the model's prompt math that mines", "PRL / 1M tokens": "PRL earned per million prompt tokens at the current difficulty", "PRL now": "PRL per million prompt tokens on mainnet today", "PRL after FP8": "PRL per million prompt tokens after the fork, at the current difficulty, which will move once miners switch", "TP": "GPUs the model is split across"};
 const th = (label: string, cls = '', key = ''): string => {
   const arrow = key && state.sort === key ? (state.desc ? ' ↓' : ' ↑') : '';
   return `<th${cls ? ` class="${cls}"` : ''}${key ? ` data-sort="${key}"` : ''}${TIPS[label] ? ` title="${esc(TIPS[label]!)}"` : ''}>${label}${arrow}</th>`;
@@ -75,6 +75,7 @@ function listPage(): string {
     now: (x) => x.now?.share ?? null,
     fp8: (x) => x.fp8?.share ?? null,
     prl: (x) => (x.paid ? x.paid.mined : null),
+    prl8: (x) => x.fp8?.mined ?? null,
   };
   const key = keys[state.sort] ?? keys.fp8!;
   // Models without a value stay at the bottom in either direction.
@@ -89,7 +90,7 @@ function listPage(): string {
     .map(({ e, model, fp8, now, paid }, i) => `<tr><td class="rank">${i + 1}</td>
         <td><a class="who" href="#/m/${encodeURIComponent(e.id)}">${esc(e.name)}</a><span class="sub">${esc(e.org)}</span></td>
         <td>${model.experts ? 'MoE' : 'Dense'}</td><td>${fp8 ? `${fp8.tp}${fp8.fits ? '' : '+'}` : '-'}</td>
-        ${forked ? '' : `<td>${share(now)}</td>`}<td>${share(fp8)}</td><td class="n">${prlPerMillion(paid)}</td></tr>`)
+        ${forked ? '' : `<td>${share(now)}</td>`}<td>${share(fp8)}</td><td class="n">${prlPerMillion(paid)}</td>${forked ? '' : `<td class="n">${prlPerMillion(fp8)}</td>`}</tr>`)
     .join('');
   return `<div class="title"><h1>Models</h1></div>
   <form class="lookup" id="search"><input name="id" placeholder="Hugging Face ID, such as Qwen/Qwen3-8B" autocomplete="off"><button type="submit">Check</button></form>
@@ -97,7 +98,7 @@ function listPage(): string {
   <div class="card">
     <div class="filters">${controls()}</div>
     <div class="scroll"><table>
-      <thead><tr><th></th>${th('Model', '', 'name')}${th('Kind', '', 'kind')}${th('TP', '', 'tp')}${forked ? th('Mineable', '', 'fp8') : th('Mineable now', '', 'now') + th('After FP8', '', 'fp8')}${th('PRL / 1M tokens', 'n', 'prl')}</tr></thead>
+      <thead><tr><th></th>${th('Model', '', 'name')}${th('Kind', '', 'kind')}${th('TP', '', 'tp')}${forked ? th('Mineable', '', 'fp8') : th('Mineable now', '', 'now') + th('After FP8', '', 'fp8')}${forked ? th('PRL / 1M tokens', 'n', 'prl') : th('PRL now', 'n', 'prl') + th('PRL after FP8', 'n', 'prl8')}</tr></thead>
       <tbody>${body}</tbody>
     </table></div>
   </div>`;
@@ -117,7 +118,7 @@ function modelPage(id: string): string {
   const byGpu = GPUS.map((g) => {
     const v = views(entry, model, g);
     return `<tr><td class="who">${esc(g.name)}</td><td>${g.memory} GB</td><td>${v.fp8 ? `${v.fp8.tp}${v.fp8.fits ? '' : '+'}` : '-'}</td>
-      ${forked ? '' : `<td>${share(v.now)}</td>`}<td>${share(v.fp8)}</td><td class="n">${prlPerMillion(v.paid)}</td></tr>`;
+      ${forked ? '' : `<td>${share(v.now)}</td>`}<td>${share(v.fp8)}</td><td class="n">${prlPerMillion(v.paid)}</td>${forked ? '' : `<td class="n">${prlPerMillion(v.fp8)}</td>`}</tr>`;
   }).join('');
   const rows = r.rows
     .map((x, i) => `<tr><td class="mono">${esc(x.name)}</td><td class="n">${int(x.n)}</td><td class="n">${int(x.k)}</td>
@@ -130,14 +131,14 @@ function modelPage(id: string): string {
   <div class="filters">${controls()}</div>
   ${stats([
     ...(forked ? [['Mineable', pct(r.share)] as [string, string]] : [['Mineable now', now ? pct(now.share) : '-'], ['After FP8', pct(r.share)]] as [string, string][]),
-    ['PRL / 1M tokens', prlPerMillion(paid)],
+    ...(forked ? [['PRL / 1M tokens', prlPerMillion(paid)] as [string, string]] : [['PRL now', prlPerMillion(paid)], ['PRL after FP8', prlPerMillion(r)]] as [string, string][]),
     ['TP', `${r.tp}${r.fits ? '' : '+'}`],
     ['GB per GPU', String(Math.round(r.bytesPerGpu / 1e9))],
   ])}
   <div class="card">
     <div class="head"><h2>By GPU</h2></div>
     <div class="scroll"><table>
-      <thead><tr><th>GPU</th><th>Memory</th>${th('TP')}${gpuHead}${th('PRL / 1M tokens', 'n')}</tr></thead>
+      <thead><tr><th>GPU</th><th>Memory</th>${th('TP')}${gpuHead}${forked ? th('PRL / 1M tokens', 'n') : th('PRL now', 'n') + th('PRL after FP8', 'n')}</tr></thead>
       <tbody>${byGpu}</tbody>
     </table></div>
   </div>
