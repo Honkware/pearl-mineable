@@ -20,7 +20,8 @@ A win has probability target × m × n × k / 2^256 (`effective_work_per_matmul`
 
 - Verdicts follow Pearl's code and have not been checked against a miner running on a GPU.
 - Only prompt processing mines. Generation, small batches and gaps between jobs do not, so real earnings depend on traffic, and the page gives no per-hour figure.
-- Work counts linear layers only. Attention scores and, for GLM-5, the sparse-attention indexer are left out.
+- Work counts linear layers only. Attention scores are left out, and so are the small projections vLLM builds without a quant config, which Pearl's plugin never sees: sparse-attention indexer gates, DeepSeek V4's KV compressors, the DeltaNet convolution and hyper-connection mixing.
+- Each architecture's layers are read from its vLLM model code, and the config reader refuses architectures it has no reader for.
 - Tensor parallelism is picked as the smallest split of 1, 2, 4 or 8 that holds the BF16 weights with a quarter of memory spare, and today's figures use the same split.
 
 ## Running it
