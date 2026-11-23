@@ -3,6 +3,9 @@ name: pages
 on:
   push:
     branches: [main]
+  # Redeploys every 6 hours so the link-preview card shows recent chain data.
+  schedule:
+    - cron: '23 */6 * * *'
   workflow_dispatch:
 
 permissions:
@@ -29,6 +32,12 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - name: Render the link-preview card from the built site
+        continue-on-error: true
+        run: |
+          npx vite preview --port 4173 --strictPort &
+          sleep 3
+          node scripts/card.mjs http://localhost:4173/pearl-mineable/ dist google-chrome
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
