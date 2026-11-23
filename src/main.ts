@@ -51,8 +51,8 @@ function seg<T>(options: [T, string][], current: T, attr: string): string {
 function controls(): string {
   const cards = GPUS.map((g) => `<option value="${g.id}"${g.id === state.gpu ? ' selected' : ''}>${esc(g.name)}</option>`).join('');
   return `<select class="pick" aria-label="GPU">${cards}</select>
-    ${seg([['auto', 'Auto'], [1, '1'], [2, '2'], [4, '4'], [8, '8']] as [string | number, string][], state.tp, 'tp')}
-    <input class="gpus" type="number" min="1" max="256" placeholder="GPUs" value="${typeof state.tp === 'number' && ![1, 2, 4, 8].includes(state.tp) ? state.tp : ''}">`;
+    ${seg([['auto', 'Auto']] as [string | number, string][], state.tp, 'tp')}
+    <input class="gpus" type="number" min="1" max="256" placeholder="GPUs" value="${typeof state.tp === 'number' ? state.tp : ''}">`;
 }
 
 function stats(items: [string, string][]): string {
@@ -103,6 +103,29 @@ function listPage(): string {
       <thead><tr><th></th>${th('Model', '', 'name')}${th('Kind', '', 'kind')}${th('GPUs', '', 'tp')}${forked ? th('Mineable', '', 'fp8') : th('Mineable now', '', 'now') + th('After FP8', '', 'fp8')}${forked ? th('PRL / 1M tokens', 'n', 'prl') : th('PRL now', 'n', 'prl') + th('PRL after FP8', 'n', 'prl8')}</tr></thead>
       <tbody>${body}</tbody>
     </table></div>
+  </div>
+  ${about(forked)}`;
+}
+
+function about(forked: boolean): string {
+  const rows: [string, string][] = [
+    ['GPUs', 'How many GPUs it takes to run the model.'],
+    ...(forked
+      ? ([
+          ['Mineable', 'How much of the model\'s work earns PRL.'],
+          ['PRL / 1M tokens', 'PRL earned per million prompt tokens.'],
+        ] as [string, string][])
+      : ([
+          ['Mineable now', 'How much of the model\'s work earns PRL today. Only Pearl\'s own versions of a model can mine right now.'],
+          ['After FP8', 'How much will earn PRL once Pearl switches to FP8.'],
+          ['PRL now', 'PRL earned per million prompt tokens today.'],
+          ['PRL after FP8', 'The same after the switch, using today\'s difficulty, so it will change.'],
+        ] as [string, string][])),
+  ];
+  return `<div class="card about">
+    <div class="head"><h2>About</h2></div>
+    <table><tbody>${rows.map(([k, v]) => `<tr><td class="who">${k}</td><td class="muted">${v}</td></tr>`).join('')}</tbody></table>
+    <div class="foot"><a class="more inline" href="https://github.com/Honkware/pearl-mineable">Source on GitHub</a></div>
   </div>`;
 }
 
