@@ -24,7 +24,7 @@ A win has probability target × m × n × k / 2^256 (`effective_work_per_matmul`
 - Only prompt processing mines. Generation, small batches and gaps between jobs do not, so real earnings depend on traffic, and the page gives no per-hour figure.
 - Work counts linear layers only, so attention scores are left out. Projections that vLLM builds without a quant config never mine; DeepSeek V4's compressors are counted as such, while the smaller indexer gates, the DeltaNet convolution and hyper-connection mixing are left out.
 - Each architecture's layers are read from its vLLM model code, and the config reader refuses architectures it has no reader for.
-- Auto picks the fewest GPUs, in powers of two, that hold the weights with a quarter of memory spare for activations and the KV cache. A layer the FP8 miner mines takes about 3.3 bytes per weight in its planes instead of the checkpoint's own size (2.3 for experts, which have no FP8 fallback copy), from the buffers in Pearl's `state.py`. A model is split by heads across up to 8 GPUs and by layers beyond that, and today's figures use the same split.
+- Auto picks the fewest GPUs, in powers of two, that fit Pearl's example command (`--max-model-len 8192 --gpu-memory-utilization 0.9 --enforce-eager`): 90% of each card must hold the weights, the miner's planes for every mined layer (about 3.3 bytes per weight, 2.3 for experts, from `state.py`), the miner's runtime reservation as `memory.py` computes it, one 8,192-token sequence of cache, and 2 GB for vLLM's activations, which is the one estimate. Longer contexts need more.
 
 ## Running it
 
