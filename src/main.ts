@@ -19,7 +19,7 @@ const int = (n: number): string => n.toLocaleString('en-US');
 const pct = (x: number): string => `${x >= 0.995 || x === 0 ? Math.round(x * 100) : (x * 100).toFixed(x < 0.1 ? 1 : 0)}%`;
 const sig = (x: number): string => (x === 0 ? '0' : x >= 1 ? x.toFixed(2) : x.toPrecision(2));
 const prlPerMillion = (r: Result | null): string => (state.tip && r ? sig(r.mined * 1e6 * state.tip.prlPerMac) : '-');
-const TIPS: Record<string, string> = {"Mineable now": "Share of the model's prompt math that mines on mainnet today", "After FP8": "Share of the model's prompt math that mines after the FP8 fork", "Mineable": "Share of the model's prompt math that mines", "PRL / 1M tokens": "PRL earned per million prompt tokens at the current difficulty", "PRL now": "PRL per million prompt tokens on mainnet today", "PRL after FP8": "PRL per million prompt tokens after the fork, at the current difficulty, which will move once miners switch", "GPUs": "GPUs the model runs on: split by heads across up to 8, and by layers beyond that"};
+const TIPS: Record<string, string> = {"Mineable now": "Share of the model's prompt math that mines on mainnet today", "After FP8": "Share of the model's prompt math that mines after the FP8 fork", "Mineable": "Share of the model's prompt math that mines", "PRL / 1M tokens": "PRL earned per million prompt tokens at the current difficulty", "PRL now": "PRL per million prompt tokens on mainnet today", "PRL after FP8": "PRL per million prompt tokens after the fork, at the current difficulty, which will move once miners switch", "GPUs": "GPUs it takes to run the model with Pearl's FP8 miner loaded: split by heads across up to 8, and by layers beyond that"};
 const th = (label: string, cls = '', key = ''): string => {
   const arrow = key && state.sort === key ? (state.desc ? ' ↓' : ' ↑') : '';
   return `<th${cls ? ` class="${cls}"` : ''}${key ? ` data-sort="${key}"` : ''}${TIPS[label] ? ` title="${esc(TIPS[label]!)}"` : ''}>${label}${arrow}</th>`;
@@ -109,7 +109,7 @@ function listPage(): string {
 
 function about(forked: boolean): string {
   const rows: [string, string][] = [
-    ['GPUs', 'How many GPUs it takes to run the model.'],
+    ['GPUs', 'How many GPUs it takes to run the model with Pearl\'s miner loaded.'],
     ...(forked
       ? ([
           ['Mineable', 'How much of the model\'s work earns PRL.'],
