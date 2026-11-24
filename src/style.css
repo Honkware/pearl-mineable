@@ -226,3 +226,8 @@ th[data-sort]:hover { color: var(--ink); }
 .pick:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .about td { white-space: normal; }
 .about td.who { width: 160px; }
+
+.chip.ok { background: color-mix(in oklab, var(--good, #1a7f37) 18%, transparent); color: var(--good, #1a7f37); }
+.chip.warn { background: color-mix(in oklab, var(--warn, #9a6700) 18%, transparent); color: var(--warn, #9a6700); }
+ul.bullets { margin: .4rem 0 .8rem; padding-left: 1.1rem; }
+ul.bullets li { margin: .25rem 0; color: var(--muted, #667); }

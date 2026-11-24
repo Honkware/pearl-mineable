@@ -9,6 +9,7 @@ import { fetchTip, type Tip } from './chain.js';
 import { GPUS, gpu } from './gpus.js';
 import { KNOWN, type Known } from './known.js';
 import { analyzeNow } from './now.js';
+import { SUPPORTED_ARCHS, EXCLUDED_CARDS, FORK_FACTS, WHAT_CHANGES } from './fork.js';
 
 const state = { gpu: 'h100', tp: 'auto' as 'auto' | number, tip: null as Tip | null, tipError: false, sort: 'fp8', desc: true };
 const extra = new Map<string, { name: string; config: Record<string, unknown> }>();
@@ -104,7 +105,41 @@ function listPage(): string {
       <tbody>${body}</tbody>
     </table></div>
   </div>
+  ${forkPanel()}
   ${about(forked)}`;
+}
+
+
+function forkPanel(): string {
+  const live = state.tip?.fp8 === true;
+  const status: [string, string] = state.tip === null
+    ? ['unknown', 'chain unreachable']
+    : live
+      ? ['live', 'Mainnet is carrying V4 (FP8) certificates.']
+      : ['pending', 'Mainnet is still on V3 (INT7). No activation height is set — this page flips when the tip’s certificate turns V4.'];
+  const heights = FORK_FACTS.map((f) => `<tr><td class="who">${f.net}</td><td class="n">${f.height === null ? '—' : int(f.height)}</td><td class="muted">${esc(f.note)}</td></tr>`).join('');
+  const sup = SUPPORTED_ARCHS.map((a) => `<tr><td class="mono">${a.arch}</td><td class="n">${a.cc}</td><td>${esc(a.family)}</td><td class="muted">${esc(a.cards)}</td></tr>`).join('');
+  const exc = EXCLUDED_CARDS.map((e) => `<tr><td>${esc(e.cards)}</td><td class="n">${e.cc}</td><td class="muted">${esc(e.family)}</td></tr>`).join('');
+  return `<div class="card">
+    <div class="head"><h2>FP8 fork</h2><span class="chip ${status[0] === 'live' ? 'ok' : 'warn'}">${status[0] === 'live' ? 'live' : status[0] === 'pending' ? 'not yet' : status[1]}</span></div>
+    <p class="muted">${esc(status[1])}</p>
+    <ul class="bullets">${WHAT_CHANGES.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
+    <div class="scroll"><table>
+      <thead><tr><th>Network</th><th class="n">Fork height</th><th>State</th></tr></thead>
+      <tbody>${heights}</tbody>
+    </table></div>
+    <div class="head"><h2>Cards that mine FP8</h2><span class="muted">compute capability 9.0+</span></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Arch</th><th class="n">CC</th><th>Family</th><th>Cards</th></tr></thead>
+      <tbody>${sup}</tbody>
+    </table></div>
+    <div class="head"><h2>Cards that stop at the fork</h2><span class="muted">no FP8 kernel (CC &lt; 9.0)</span></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Cards</th><th class="n">CC</th><th>Family</th></tr></thead>
+      <tbody>${exc}</tbody>
+    </table></div>
+    <p class="muted">Reflects Pearl’s reference FP8 kernels (rules.ts, from the fp8-scheme branch). Third-party miners may add emulation for older cards, which Pearl notes is inefficient.</p>
+  </div>`;
 }
 
 function about(forked: boolean): string {

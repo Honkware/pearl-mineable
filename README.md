@@ -52,3 +52,7 @@ python3 scripts/check-shapes.py layers.json
 ## Licence
 
 MIT. The model configs in `src/configs` are the `config.json` files their publishers put on Hugging Face; the Llama 4 ones come from unsloth's copies, since Meta's repositories need a login.
+
+## Another pearljs app
+
+[pearl-mining-dashboard](https://github.com/Honkware/pearl-mining-dashboard) is a sibling tool, also built on pearljs: it reads who mines Pearl blocks from a `pearld` node — block shares with intervals, pool labels, and a payout audit.
